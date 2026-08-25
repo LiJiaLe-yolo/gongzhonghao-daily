@@ -1,10 +1,8 @@
 package com.wang.springboottemplate;
-
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import okhttp3.*;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -20,7 +18,6 @@ public class FilmReviewMain {
     private static final String GIST_ID = System.getenv("GIST_ID");
     private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
-
     private static final double TMDB_MIN_VOTE = 6.8;
     private static final int TARGET_MIN = 2000;
     private static final int TARGET_MAX = 3000;
@@ -28,7 +25,6 @@ public class FilmReviewMain {
     private static final int DEEPSEEK_RETRY = 2;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
-
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态",
             "人性深度、自我救赎",
@@ -36,32 +32,26 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
-
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
-
     private static String currentFilmTag = "";
 
-    public static void main(String[] args) throws IOException{
+    public static void main(String[] args) {
         try {
             System.out.println("===== 影评生成任务启动 =====");
             checkEnv();
             List<String> usedMovies = loadUsedFromGist();
             System.out.println("已处理电影数量：" + usedMovies.size());
-
             String pickedMovie = pickOneMovie(usedMovies);
             System.out.println("选中电影：" + pickedMovie + "｜风格标签：" + currentFilmTag);
-
             String article = generateReview(pickedMovie);
             System.out.println("生成稿件长度：" + article.length());
-
             sendFeishuCard(pickedMovie, article);
             System.out.println("飞书推送完成");
-
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
             System.out.println("Gist已更新，任务结束");
@@ -96,12 +86,10 @@ public class FilmReviewMain {
             } else {
                 candidates = aiGenerateTaggedMoviePool();
             }
-
             if (candidates == null || candidates.isEmpty()) {
                 System.out.println("本次候选池为空，重新生成风格化电影池");
                 candidates = aiGenerateTaggedMoviePool();
             }
-
             for (String name : candidates) {
                 if (!used.contains(name)) {
                     return name;
@@ -144,21 +132,23 @@ public class FilmReviewMain {
             }
         } catch (Exception e) {
             System.err.println("TMDB请求异常：" + e.getMessage() + "，降级AI风格选片");
-            return aiGenerateTaggedMoviePool();
+            try {
+                return aiGenerateTaggedMoviePool();
+            } catch (IOException ex) {
+                return new ArrayList<>();
+            }
         }
-        return list.isEmpty() ? aiGenerateTaggedMoviePool() : list;
+        return list.isEmpty() ? new ArrayList<>() : list;
     }
 
     private static List<String> aiGenerateTaggedMoviePool() throws IOException {
         int tagIndex = (int) (Math.random() * FILM_TAGS.length);
         currentFilmTag = FILM_TAGS[tagIndex];
-
         String prompt = "你是公众号影视选题编辑，请根据风格标签【" + currentFilmTag + "】，输出10部国内外高分经典电影中文名称。\n" +
                 "要求：\n" +
                 "1. 严格贴合标签风格，题材统一、调性一致；\n" +
                 "2. 避开烂片、冷门小众片，全部是大众熟知、适合深度解读、自带流量的爆款潜质影片；\n" +
                 "3. 只输出纯净JSON数组，不要解释、不要序号、不要多余文字。";
-
         String resp = callDeepSeek(prompt);
         JSONArray arr = JSON.parseArray(resp);
         return arr.toList(String.class);
@@ -166,7 +156,7 @@ public class FilmReviewMain {
 
     private static String generateReview(String movieName) throws Exception {
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
-            String prompt = "请为电影《" + movieName + "》撰写一篇2000-3000字的公众号爆款深度影评，影片核心风格标签：【" + currentFilmTag + "】，严格遵守以下所有写作规范，禁止违规输出：\n" +
+            String prompt = "你是一位有多年观影经验的专业的影评人,请为电影《" + movieName + "》撰写一篇2000-3000字的公众号爆款深度影评，影片核心风格标签：【" + currentFilmTag + "】，严格遵守以下所有写作规范，禁止违规输出：\n" +
                     "\n" +
                     "一、核心定位：拒绝小学生剧情复述，以「成年人现实共鸣+人性深度解读」为核心，贴合标签调性，观点犀利、共情力拉满，适配公众号传播，自带爆款属性。\n" +
                     "二、文章结构（必须严格执行）：\n" +
@@ -183,7 +173,6 @@ public class FilmReviewMain {
                     "3. 全程围绕影片风格标签创作，风格统一不跑偏；\n" +
                     "4. 无标题、无前言、无摘要、无后记、无特殊符号、无markdown格式，纯正文，可直接粘贴公众号发布；\n" +
                     "5. 字数严格锁定2000-3000字，不足或超额均无效。";
-
             String content = callDeepSeek(prompt);
             content = content.trim();
             if (content.length() >= TARGET_MIN && content.length() <= TARGET_MAX) {
@@ -207,7 +196,6 @@ public class FilmReviewMain {
                 .addHeader("Authorization", "Bearer " + DEEPSEEK_API_KEY)
                 .post(rb)
                 .build();
-
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_RETRY; r++) {
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
