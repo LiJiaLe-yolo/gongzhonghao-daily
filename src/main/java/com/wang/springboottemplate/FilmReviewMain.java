@@ -1,8 +1,10 @@
 package com.wang.springboottemplate;
+
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import okhttp3.*;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -31,6 +33,7 @@ public class FilmReviewMain {
     private static final int DEEPSEEK_RETRY = 2;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
+
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态",
             "人性深度、自我救赎",
@@ -38,12 +41,14 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
+
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(150, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
+
     private static String currentFilmTag = "";
 
     public static class ReviewResult {
@@ -65,11 +70,10 @@ public class FilmReviewMain {
             System.out.println("影评正文长度：" + reviewResult.article.length());
 
             sendFeishuCard(pickedMovie, reviewResult);
-
             System.out.println("飞书卡片推送完成");
+
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
-            System.out.println("Gist已更新，任务结束");
         } catch (Exception e) {
             System.err.println("任务异常：" + e.getMessage());
             e.printStackTrace();
@@ -184,7 +188,7 @@ public class FilmReviewMain {
             contentRaw = stripCodeBlock(contentRaw).trim();
             System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(220, contentRaw.length())));
 
-            if(contentRaw.isBlank()){
+            if (contentRaw.isBlank()) {
                 System.out.println("AI返回为空，休眠2s后重试");
                 TimeUnit.SECONDS.sleep(2);
                 continue;
@@ -197,14 +201,14 @@ public class FilmReviewMain {
                 System.out.printf("JSON解析失败，重试，err=%s%n", e.getMessage());
                 continue;
             }
-            if(jo == null){
+            if (jo == null) {
                 System.out.println("parseObject返回null，重试");
                 continue;
             }
 
             String article = jo.getString("article");
             JSONArray titleArr = jo.getJSONArray("titles");
-            if(article == null || titleArr == null || titleArr.size()!=3){
+            if (article == null || titleArr == null || titleArr.size() != 3) {
                 System.out.println("字段缺失，重试生成");
                 continue;
             }
@@ -214,32 +218,30 @@ public class FilmReviewMain {
             temp.article = article;
 
             int len = article.length();
-            if(len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_MAX){
+            if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_MAX) {
                 return temp;
             }
-            // 软下限：1200以上可以兜底放行，保存为fallback
-            if(len >= ARTICLE_SOFT_MIN){
+            if (len >= ARTICLE_SOFT_MIN) {
                 System.out.printf("未达到理想长度1800，当前长度：%d，作为兜底候选保存%n", len);
                 fallbackResult = temp;
-            }else{
+            } else {
                 System.out.printf("稿件过短直接丢弃，当前长度：%d%n", len);
             }
         }
-        // 重试耗尽，如果有兜底稿件直接返回，不再抛异常
-        if(fallbackResult != null){
+        if (fallbackResult != null) {
             System.out.println("多次未拿到理想长度稿件，使用兜底稿件继续执行任务");
             return fallbackResult;
         }
         throw new Exception("多次生成无法得到符合长度的影评");
     }
 
-    private static String stripCodeBlock(String text){
+    private static String stripCodeBlock(String text) {
         String s = text.trim();
-        if(s.startsWith("```")){
+        if (s.startsWith("```")) {
             int firstNewLine = s.indexOf('\n');
             int lastBackTick = s.lastIndexOf("```");
-            if(lastBackTick > firstNewLine){
-                s = s.substring(firstNewLine+1, lastBackTick);
+            if (lastBackTick > firstNewLine) {
+                s = s.substring(firstNewLine + 1, lastBackTick);
             }
         }
         return s.trim();
@@ -252,12 +254,14 @@ public class FilmReviewMain {
         JSONArray msgs = new JSONArray();
         msgs.add(JSONObject.of("role", "user", "content", prompt));
         body.put("messages", msgs);
+
         RequestBody rb = RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder()
                 .url(DEEPSEEK_URL)
                 .addHeader("Authorization", "Bearer " + DEEPSEEK_API_KEY)
                 .post(rb)
                 .build();
+
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_RETRY; r++) {
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
@@ -270,7 +274,7 @@ public class FilmReviewMain {
                         .getJSONObject("message").getString("content").trim();
             } catch (IOException e) {
                 lastEx = e;
-                System.err.printf("DeepSeek调用异常，第%d次重试：%s%n", r+1, e.getMessage());
+                System.err.printf("DeepSeek调用异常，第%d次重试：%s%n", r + 1, e.getMessage());
             }
         }
         throw new IOException("DeepSeek重试耗尽", lastEx);
@@ -289,7 +293,7 @@ public class FilmReviewMain {
             }
             JSONObject gist = JSON.parseObject(resp.body().string());
             JSONObject files = gist.getJSONObject("files");
-            if(files == null || !files.containsKey(GIST_FILENAME)){
+            if (files == null || !files.containsKey(GIST_FILENAME)) {
                 System.out.println("Gist内目标文件不存在，初始化空已使用列表");
                 return new ArrayList<>();
             }
@@ -299,22 +303,37 @@ public class FilmReviewMain {
         }
     }
 
-    private static void saveUsedToGist(List<String> list) throws IOException {
-        JSONObject fileItem = new JSONObject();
-        fileItem.put("content", JSON.toJSONString(list));
-        JSONObject files = new JSONObject();
-        files.put(GIST_FILENAME, fileItem);
-        JSONObject body = new JSONObject();
-        body.put("files", files);
-        RequestBody rb = RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8"));
-        Request req = new Request.Builder()
-                .url("https://api.github.com/gists/" + GITHUB_PAT)
-                .patch(rb)
-                .build();
-        try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-            if (!resp.isSuccessful()) {
-                throw new IOException("更新Gist失败 code=" + resp.code());
+    /**
+     * 修复：url使用GIST_ID，内部捕获异常，不向上抛出，不中断主任务
+     */
+    private static void saveUsedToGist(List<String> list) {
+        try {
+            JSONObject fileItem = new JSONObject();
+            fileItem.put("content", JSON.toJSONString(list));
+            JSONObject files = new JSONObject();
+            files.put(GIST_FILENAME, fileItem);
+            JSONObject body = new JSONObject();
+            body.put("files", files);
+
+            RequestBody rb = RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8"));
+            String patchUrl = "https://api.github.com/gists/" + GIST_ID;
+            Request req = new Request.Builder()
+                    .url(patchUrl)
+                    .addHeader("Authorization", "token " + GITHUB_PAT)
+                    .patch(rb)
+                    .build();
+
+            try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                if (!resp.isSuccessful()) {
+                    String respBody = resp.body() != null ? resp.body().string() : "";
+                    System.err.printf("更新Gist失败 code=%d, resp=%s%n", resp.code(), respBody);
+                    return;
+                }
+                System.out.println("Gist已更新，任务结束");
             }
+        } catch (Exception e) {
+            System.err.println("saveUsedToGist发生异常，跳过写入已处理列表：" + e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -328,7 +347,7 @@ public class FilmReviewMain {
         mdSb.append(reviewResult.article);
 
         String mdContent = mdSb.toString();
-        if(mdContent.length() > FEISHU_CARD_SAFE_MAX){
+        if (mdContent.length() > FEISHU_CARD_SAFE_MAX) {
             mdContent = mdContent.substring(0, FEISHU_CARD_SAFE_MAX - 100) + "\n……（卡片篇幅受限截断）";
         }
 
