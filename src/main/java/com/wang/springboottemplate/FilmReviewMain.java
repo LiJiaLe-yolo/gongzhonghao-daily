@@ -40,6 +40,12 @@ public class FilmReviewMain {
             .build();
     private static String currentFilmTag = "";
 
+    // 内部实体：承载标题列表+影评正文
+    public static class ReviewResult {
+        public List<String> titles;
+        public String article;
+    }
+
     public static void main(String[] args) {
         try {
             System.out.println("===== 影评生成任务启动 =====");
@@ -48,9 +54,15 @@ public class FilmReviewMain {
             System.out.println("已处理电影数量：" + usedMovies.size());
             String pickedMovie = pickOneMovie(usedMovies);
             System.out.println("选中电影：" + pickedMovie + "｜风格标签：" + currentFilmTag);
-            String article = generateReview(pickedMovie);
-            System.out.println("生成稿件长度：" + article.length());
-            sendFeishuCard(pickedMovie, article);
+
+            ReviewResult reviewResult = generateReview(pickedMovie);
+            System.out.println("候选标题：" + reviewResult.titles);
+            System.out.println("生成稿件长度：" + reviewResult.article.length());
+
+            // 卡片展示元信息与摘要，单独text消息推送完整全文
+            sendFeishuCard(pickedMovie, reviewResult);
+            sendFeishuText("🎬《" + pickedMovie + "》完整影评正文：\n\n" + reviewResult.article);
+
             System.out.println("飞书推送完成");
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
@@ -147,38 +159,41 @@ public class FilmReviewMain {
         String prompt = "你是公众号影视选题编辑，请根据风格标签【" + currentFilmTag + "】，输出10部国内外高分经典电影中文名称。\n" +
                 "要求：\n" +
                 "1. 严格贴合标签风格，题材统一、调性一致；\n" +
-                "2. 避开烂片、冷门小众片，全部是大众熟知、适合深度解读、自带流量的爆款潜质影片；\n" +
+                "2. 避开烂片、影片要有质量、适合深度解读、自带流量的爆款潜质影片；\n" +
                 "3. 只输出纯净JSON数组，不要解释、不要序号、不要多余文字。";
         String resp = callDeepSeek(prompt);
         JSONArray arr = JSON.parseArray(resp);
         return arr.toList(String.class);
     }
 
-    private static String generateReview(String movieName) throws Exception {
+    private static ReviewResult generateReview(String movieName) throws Exception {
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
-            String prompt = "你是一位有多年观影经验的专业的影评人,请为电影《" + movieName + "》撰写一篇2000-3000字的公众号爆款深度影评，影片核心风格标签：【" + currentFilmTag + "】，严格遵守以下所有写作规范，禁止违规输出：\n" +
+            String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
+                    "输出格式要求：**只返回JSON对象，禁止任何额外说明文字**，结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
-                    "一、核心定位：拒绝小学生剧情复述，以「成年人现实共鸣+人性深度解读」为核心，贴合标签调性，观点犀利、共情力拉满，适配公众号传播，自带爆款属性。\n" +
-                    "二、文章结构（必须严格执行）：\n" +
-                    "1. 开篇钩子：用一句扎心、戳中当代年轻人痛点的现实金句引入，瞬间抓住读者，不铺垫剧情；\n" +
-                    "2. 极简剧情铺垫：用100字以内简述核心主线，只讲关键冲突，不堆砌细节、不流水账；\n" +
-                    "3. 深度内核解读：结合影片镜头、人物选择、剧情隐喻，拆解电影背后的人性、社会、成长、遗憾等深层逻辑，贴合对应风格标签；\n" +
-                    "4. 现实共鸣延伸：从电影落地到普通人的生活、职场、情感、内耗、成长困境，让读者代入自身，产生共情；\n" +
-                    "5. 观点总结升华：输出独立价值观，不鸡汤、不空洞，有态度、有思考；\n" +
-                    "6. 结尾金句收尾：凝练一句高级金句，提升全文质感，适合读者摘抄转发。\n" +
-                    "\n" +
-                    "三、行文要求：\n" +
-                    "1. 段落简短精致，每段3-5行，适配手机端阅读，无大段密集文字；\n" +
-                    "2. 语言温柔又有力量，克制不矫情、深刻不晦涩；\n" +
-                    "3. 全程围绕影片风格标签创作，风格统一不跑偏；\n" +
-                    "4. 无标题、无前言、无摘要、无后记、无特殊符号、无markdown格式，纯正文，可直接粘贴公众号发布；\n" +
-                    "5. 字数严格锁定2000-3000字，不足或超额均无效。";
-            String content = callDeepSeek(prompt);
-            content = content.trim();
-            if (content.length() >= TARGET_MIN && content.length() <= TARGET_MAX) {
-                return content;
+                    "titles字段：输出3个公众号爆款标题，有情绪钩子，适配影视号传播。\n" +
+                    "article影评正文写作规范：\n" +
+                    "1. 专业影评人视角，克制高级，重镜头隐喻、人物困境、社会人性思辨；**拒绝大段剧情复述，剧情仅极简点到为止，不做故事流水账**。\n" +
+                    "2. 开篇使用扎心现实钩子切入；拆解人物选择、镜头语言、影片背后的精神内核；延伸当代普通人现实处境，带来共情思考；结尾金句收束。\n" +
+                    "3. 段落简短，适配手机阅读；无markdown、无标题，纯正文文本；字数严格2000‑3000字。";
+
+            String contentRaw = callDeepSeek(prompt);
+            contentRaw = contentRaw.trim();
+            JSONObject jo = JSON.parseObject(contentRaw);
+            String article = jo.getString("article");
+            JSONArray titleArr = jo.getJSONArray("titles");
+
+            if(article == null || titleArr == null){
+                System.out.printf("返回JSON解析异常，重试生成%n");
+                continue;
             }
-            System.out.printf("稿件长度不达标，重试生成，当前长度：%d%n", content.length());
+            if (article.length() >= TARGET_MIN && article.length() <= TARGET_MAX) {
+                ReviewResult res = new ReviewResult();
+                res.titles = titleArr.toList(String.class);
+                res.article = article;
+                return res;
+            }
+            System.out.printf("稿件长度不达标，重试生成，当前长度：%d%n", article.length());
         }
         throw new Exception("多次生成无法得到符合长度的爆款影评");
     }
@@ -257,22 +272,33 @@ public class FilmReviewMain {
         }
     }
 
-    private static void sendFeishuCard(String movie, String article) throws IOException {
-        String text = article.length() > 2800 ? article.substring(0, 2800) + "\n……（内容截断，完整稿件见程序输出）" : article;
+    /**
+     * 飞书卡片：展示元信息+标题列表+文章开头片段，不承载全文
+     */
+    private static void sendFeishuCard(String movie, ReviewResult reviewResult) throws IOException {
+        String titleBlock = "**备选标题：**\n" + String.join("\n", reviewResult.titles);
+        String snippet = reviewResult.article.length() > 600 ? reviewResult.article.substring(0,600)+"\n……（完整影评见下方文本消息）" : reviewResult.article;
+
         JSONObject card = new JSONObject();
         card.put("msg_type", "interactive");
         JSONObject ele = new JSONObject();
         ele.put("tag", "div");
-        ele.put("text", JSONObject.of("tag", "lark_md", "content", "**🎬《" + movie + "》影评**\n**影片风格：" + currentFilmTag + "**\n\n" + text));
+        String mdContent = "**🎬《" + movie + "》影评任务产出**\n" +
+                "**影片风格：" + currentFilmTag + "**\n\n" +
+                titleBlock + "\n\n" +
+                "**正文片段预览：**\n"+ snippet;
+
+        ele.put("text", JSONObject.of("tag", "lark_md", "content", mdContent));
         JSONArray elements = new JSONArray();
         elements.add(ele);
         JSONObject payload = JSONObject.of("config", JSONObject.of("wide_screen_mode", true), "elements", elements);
         card.put("card", payload);
+
         RequestBody rb = RequestBody.create(card.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
             if (!resp.isSuccessful()) {
-                System.err.println("飞书推送异常：" + resp.code() + " " + resp.body().string());
+                System.err.println("飞书卡片推送异常：" + resp.code());
             }
         }
     }
