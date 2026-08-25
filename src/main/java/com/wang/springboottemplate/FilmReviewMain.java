@@ -20,10 +20,11 @@ public class FilmReviewMain {
     private static final String GIST_FILENAME = "film_used_movies.json";
     private static final double TMDB_MIN_VOTE = 6.8;
 
-    // 影评正文：1800‑2500汉字
-    private static final int ARTICLE_MIN = 1800;
+    //理想区间1800‑2500，软下限1200，低于1200才丢弃
+    private static final int ARTICLE_IDEAL_MIN = 1800;
+    private static final int ARTICLE_SOFT_MIN = 1200;
     private static final int ARTICLE_MAX = 2500;
-    // 飞书lark_md安全总上限，卡片整体不能超过这个
+    //飞书卡片总安全上限
     private static final int FEISHU_CARD_SAFE_MAX = 2700;
 
     private static final int MAX_TOKENS = 6144;
@@ -39,7 +40,7 @@ public class FilmReviewMain {
     };
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(120, TimeUnit.SECONDS)
+            .readTimeout(150, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
@@ -157,7 +158,7 @@ public class FilmReviewMain {
         String prompt = "你是公众号影视选题编辑，请根据风格标签【" + currentFilmTag + "】，输出10部国内外高分经典电影中文名称。\n" +
                 "要求：\n" +
                 "1. 严格贴合标签风格，题材统一、调性一致；\n" +
-                "2. 避开烂片、冷门小众片，全部是大众熟知、适合深度解读、自带流量的爆款潜质影片；\n" +
+                "2. 避开烂片、要是有质量的影片，适合深度解读、自带流量的爆款潜质影片；\n" +
                 "3. 只输出纯净JSON数组，不要解释、不要序号、不要多余文字。";
         String resp = callDeepSeek(prompt);
         resp = stripCodeBlock(resp);
@@ -166,23 +167,26 @@ public class FilmReviewMain {
     }
 
     private static ReviewResult generateReview(String movieName) throws Exception {
+        ReviewResult fallbackResult = null;
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
                     "⚠️强制约束：只返回**完整闭合纯净JSON**，禁止```json代码块，禁止任何前后说明文字，JSON必须完整不能截断！\n" +
+                    "⚠️重点：影评正文务必写足1800‑2500汉字，内容饱满，不要简短简写！\n" +
                     "JSON结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
                     "titles：3个公众号爆款标题，带情绪钩子，适合影视号传播。\n" +
                     "article影评正文：\n" +
                     "1. 专业影评人风格，重镜头隐喻、人物困境、人性思辨；拒绝大段剧情复述，剧情极简点到为止。\n" +
                     "2. 开篇钩子切入，拆解内核，延伸现实共情，结尾金句收束；段落简短适合手机阅读。\n" +
-                    "3. 不要markdown格式，纯文本；**严格控制1800‑2500汉字，输出完整JSON，不能半截中断**。";
+                    "3. 不要markdown格式，纯文本。";
 
             String contentRaw = callDeepSeek(prompt);
             contentRaw = stripCodeBlock(contentRaw).trim();
             System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(220, contentRaw.length())));
 
             if(contentRaw.isBlank()){
-                System.out.println("AI返回为空，重试");
+                System.out.println("AI返回为空，休眠2s后重试");
+                TimeUnit.SECONDS.sleep(2);
                 continue;
             }
 
@@ -193,7 +197,6 @@ public class FilmReviewMain {
                 System.out.printf("JSON解析失败，重试，err=%s%n", e.getMessage());
                 continue;
             }
-            // 防御判空，防止NPE
             if(jo == null){
                 System.out.println("parseObject返回null，重试");
                 continue;
@@ -205,20 +208,31 @@ public class FilmReviewMain {
                 System.out.println("字段缺失，重试生成");
                 continue;
             }
-            if (article.length() >= ARTICLE_MIN && article.length() <= ARTICLE_MAX) {
-                ReviewResult res = new ReviewResult();
-                res.titles = titleArr.toList(String.class);
-                res.article = article;
-                return res;
+
+            ReviewResult temp = new ReviewResult();
+            temp.titles = titleArr.toList(String.class);
+            temp.article = article;
+
+            int len = article.length();
+            if(len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_MAX){
+                return temp;
             }
-            System.out.printf("稿件长度不达标，重试生成，当前长度：%d%n", article.length());
+            // 软下限：1200以上可以兜底放行，保存为fallback
+            if(len >= ARTICLE_SOFT_MIN){
+                System.out.printf("未达到理想长度1800，当前长度：%d，作为兜底候选保存%n", len);
+                fallbackResult = temp;
+            }else{
+                System.out.printf("稿件过短直接丢弃，当前长度：%d%n", len);
+            }
+        }
+        // 重试耗尽，如果有兜底稿件直接返回，不再抛异常
+        if(fallbackResult != null){
+            System.out.println("多次未拿到理想长度稿件，使用兜底稿件继续执行任务");
+            return fallbackResult;
         }
         throw new Exception("多次生成无法得到符合长度的影评");
     }
 
-    /**
-     * 去除 ```json ... ``` 代码块包裹
-     */
     private static String stripCodeBlock(String text){
         String s = text.trim();
         if(s.startsWith("```")){
@@ -304,9 +318,6 @@ public class FilmReviewMain {
         }
     }
 
-    /**
-     * 单张飞书卡片：元信息 + 3个标题 + 影评，内置安全字符截断
-     */
     private static void sendFeishuCard(String movie, ReviewResult reviewResult) throws IOException {
         String titleBlock = "**备选标题：**\n" + String.join("\n", reviewResult.titles);
         StringBuilder mdSb = new StringBuilder();
