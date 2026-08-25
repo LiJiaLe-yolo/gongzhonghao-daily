@@ -1,0 +1,29 @@
+name: 仓库保活任务（15天一次空提交）
+
+on:
+  workflow_dispatch:
+  schedule:
+    # UTC时间，每15天执行一次
+    - cron: '0 0 */15 * *'
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: 执行空提交保活
+        run: |
+          git config --global user.name "github‑actions‑bot"
+          git config --global user.email "actions@github.com"
+          touch keepalive.tmp
+          git add keepalive.tmp
+          git commit -m "keep‑alive: 仓库保活 $DATE" || echo "nothing to commit, skip"
+          git push origin main
+        env:
+          DATE: $(date)
