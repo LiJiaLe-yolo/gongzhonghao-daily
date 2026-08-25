@@ -22,14 +22,14 @@ public class FilmReviewMain {
     private static final String GIST_FILENAME = "film_used_movies.json";
     private static final double TMDB_MIN_VOTE = 6.8;
 
-    //理想区间1800‑2500，软下限1200，低于1200才丢弃
-    private static final int ARTICLE_IDEAL_MIN = 1800;
+    // 影评正文理想区间2200‑2400，软下限1200，低于1200丢弃
+    private static final int ARTICLE_IDEAL_MIN = 2200;
     private static final int ARTICLE_SOFT_MIN = 1200;
-    private static final int ARTICLE_MAX = 2500;
-    //飞书卡片总安全上限
-    private static final int FEISHU_CARD_SAFE_MAX = 2700;
+    private static final int ARTICLE_MAX = 2400;
+    // 飞书单张卡片总安全上限(含markdown格式字符)
+    private static final int FEISHU_CARD_SAFE_MAX = 2500;
 
-    private static final int MAX_TOKENS = 6144;
+    private static final int MAX_TOKENS = 5500;
     private static final int DEEPSEEK_RETRY = 2;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
@@ -175,7 +175,7 @@ public class FilmReviewMain {
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
                     "⚠️强制约束：只返回**完整闭合纯净JSON**，禁止```json代码块，禁止任何前后说明文字，JSON必须完整不能截断！\n" +
-                    "⚠️重点：影评正文务必写足1800‑2500汉字，内容饱满，不要简短简写！\n" +
+                    "⚠️硬性字数：影评正文汉字严格控制在2200‑2400，**绝对不要超过2400字**，内容饱满，不要简短简写！\n" +
                     "JSON结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
                     "titles：3个公众号爆款标题，带情绪钩子，适合影视号传播。\n" +
@@ -222,7 +222,7 @@ public class FilmReviewMain {
                 return temp;
             }
             if (len >= ARTICLE_SOFT_MIN) {
-                System.out.printf("未达到理想长度1800，当前长度：%d，作为兜底候选保存%n", len);
+                System.out.printf("未达到理想长度2200，当前长度：%d，作为兜底候选保存%n", len);
                 fallbackResult = temp;
             } else {
                 System.out.printf("稿件过短直接丢弃，当前长度：%d%n", len);
@@ -303,9 +303,6 @@ public class FilmReviewMain {
         }
     }
 
-    /**
-     * 修复：url使用GIST_ID，内部捕获异常，不向上抛出，不中断主任务
-     */
     private static void saveUsedToGist(List<String> list) {
         try {
             JSONObject fileItem = new JSONObject();
@@ -348,7 +345,15 @@ public class FilmReviewMain {
 
         String mdContent = mdSb.toString();
         if (mdContent.length() > FEISHU_CARD_SAFE_MAX) {
-            mdContent = mdContent.substring(0, FEISHU_CARD_SAFE_MAX - 100) + "\n……（卡片篇幅受限截断）";
+            int pos = FEISHU_CARD_SAFE_MAX - 120;
+            String temp = mdContent.substring(0, pos);
+            int lastLineBreak = temp.lastIndexOf('\n');
+            if (lastLineBreak > 1000) {
+                mdContent = mdContent.substring(0, lastLineBreak);
+            } else {
+                mdContent = temp;
+            }
+            mdContent += "\n\n……（内容已精简，完整稿件看AI原始输出）";
         }
 
         JSONObject card = new JSONObject();
