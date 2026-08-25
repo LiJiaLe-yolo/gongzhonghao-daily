@@ -21,9 +21,9 @@ public class FilmReviewMain {
     private static final double TMDB_MIN_VOTE = 6.8;
 
     // 适配飞书单卡片 lark_md 上限，整体安全上限2300字符，影评正文控制 1100‑1500汉字
-    private static final int ARTICLE_MIN = 1100;
-    private static final int ARTICLE_MAX = 1500;
-    private static final int FEISHU_CARD_SAFE_MAX = 2300;
+    private static final int ARTICLE_MIN = 2100;
+    private static final int ARTICLE_MAX = 2500;
+    private static final int FEISHU_CARD_SAFE_MAX = 2550;
 
     private static final int MAX_TOKENS = 4096;
     private static final int DEEPSEEK_RETRY = 2;
