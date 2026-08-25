@@ -23,7 +23,7 @@ public class FilmReviewMain {
 
     // Gist持久化已使用电影
     private static final String GIST_ID = System.getenv("GIST_ID");
-    private static final String GITHUB_PAT = System.getenv("GITHUB_PAT");
+    private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
 
     // 业务参数
