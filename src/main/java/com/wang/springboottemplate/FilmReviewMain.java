@@ -46,7 +46,7 @@ public class FilmReviewMain {
 
     private static String currentFilmTag = "";
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws IOException{
         try {
             System.out.println("===== 影评生成任务启动 =====");
             checkEnv();
