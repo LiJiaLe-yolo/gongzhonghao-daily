@@ -22,11 +22,12 @@ public class FilmReviewMain {
     private static final String GIST_FILENAME = "film_used_movies.json";
     private static final double TMDB_MIN_VOTE = 6.8;
 
-    // 影评正文理想区间2000‑2400，软下限1600，低于1600丢弃
-    private static final int ARTICLE_IDEAL_MIN = 2000;
-    private static final int ARTICLE_SOFT_MIN = 1600;
-    private static final int ARTICLE_MAX = 2400;
-    // 飞书单张卡片总安全上限(含markdown格式字符)
+    // 最终定稿区间：1800-2500（飞书单卡完整展示）
+    private static final int ARTICLE_IDEAL_MIN = 1800;
+    private static final int ARTICLE_IDEAL_MAX = 2500;
+    // 兜底区间：1500 ~ 2500，超长直接丢弃
+    private static final int ARTICLE_SOFT_MIN = 1500;
+    // 飞书单张卡片安全上限
     private static final int FEISHU_CARD_SAFE_MAX = 2500;
 
     private static final int MAX_TOKENS = 5500;
@@ -179,7 +180,7 @@ public class FilmReviewMain {
             System.out.printf("[LOG] 影评生成第%d轮重试%n", i+1);
             String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
                     "⚠️强制约束：只返回**完整闭合纯净JSON**，禁止```json代码块，禁止任何前后说明文字，JSON必须完整不能截断！\n" +
-                    "⚠️硬性字数：影评正文汉字严格控制在2000‑2400，**绝对不要超过2400字**，内容饱满，不要简短简写！\n" +
+                    "⚠️硬性字数：影评正文汉字严格控制在1800‑2500字，**禁止超过2500字、禁止少于1800字**，内容饱满流畅！\n" +
                     "JSON结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
                     "titles：3个公众号爆款标题，带情绪钩子，适合影视号传播。\n" +
@@ -229,13 +230,23 @@ public class FilmReviewMain {
             temp.article = article;
 
             int len = article.length();
-            System.out.printf("[LOG]本轮稿件长度：%d，理想区间[%d,%d]，软下限%d%n", len,ARTICLE_IDEAL_MIN,ARTICLE_MAX,ARTICLE_SOFT_MIN);
-            if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_MAX) {
+            System.out.printf("[LOG]本轮稿件长度：%d，理想区间[%d,%d]，兜底下限%d%n", len,ARTICLE_IDEAL_MIN,ARTICLE_IDEAL_MAX,ARTICLE_SOFT_MIN);
+
+            // 完美区间：直接返回
+            if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_IDEAL_MAX) {
                 System.out.println("[LOG]拿到理想长度稿件，直接返回");
                 return temp;
             }
+
+            // 超长：直接丢弃，不兜底
+            if(len > ARTICLE_IDEAL_MAX){
+                System.out.printf("[WARN]稿件超长(超过2500)，直接丢弃，当前长度：%d%n",len);
+                continue;
+            }
+
+            // 短于理想、但达标兜底：保存兜底
             if (len >= ARTICLE_SOFT_MIN) {
-                System.out.printf("未达到理想长度%d，当前长度：%d，作为兜底候选保存%n", ARTICLE_IDEAL_MIN, len);
+                System.out.printf("未达到理想下限%d，当前长度：%d，作为兜底候选保存%n", ARTICLE_IDEAL_MIN, len);
                 fallbackResult = temp;
             } else {
                 System.out.printf("稿件过短直接丢弃，当前长度：%d%n", len);
@@ -291,7 +302,6 @@ public class FilmReviewMain {
                     System.out.println("[WARN] DeepSeek接口调用成功，但返回message.content为空字符串");
                     return "";
                 }
-                //打印片段用于调试
                 String snippet = modelContent.substring(0,Math.min(600,modelContent.length()));
                 System.out.println("[LOG]模型返回content片段："+snippet);
                 return modelContent.trim();
@@ -369,6 +379,7 @@ public class FilmReviewMain {
         mdSb.append(reviewResult.article);
 
         String mdContent = mdSb.toString();
+        // 现在稿件本身≤2500，卡片无需截断，完整展示
         if (mdContent.length() > FEISHU_CARD_SAFE_MAX) {
             int pos = FEISHU_CARD_SAFE_MAX - 120;
             String temp = mdContent.substring(0, pos);
