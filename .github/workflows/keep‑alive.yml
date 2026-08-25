@@ -17,13 +17,15 @@ jobs:
           fetch-depth: 0
           persist-credentials: true
 
+      - name: 获取当前默认分支
+        id: get_branch
+        run: echo "BRANCH=$(git remote show origin | grep 'HEAD branch' | awk '{print $NF}')" >> $GITHUB_ENV
+
       - name: 执行空提交保活
         run: |
           git config --global user.name "github‑actions‑bot"
           git config --global user.email "actions@github.com"
           touch keepalive.tmp
           git add keepalive.tmp
-          git commit -m "keep‑alive: 仓库保活 $DATE" || echo "nothing to commit, skip"
-          git push origin main
-        env:
-          DATE: $(date)
+          git commit -m "keep‑alive: 仓库保活 $(date)" || echo "nothing to commit, skip"
+          git push origin ${{ env.BRANCH }}
