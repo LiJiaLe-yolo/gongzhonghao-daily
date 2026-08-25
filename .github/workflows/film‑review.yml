@@ -1,0 +1,34 @@
+name: 每日影评生成任务
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 北京时间早上05:00 = UTC 21:00
+    - cron: '0 21 * * *'
+
+jobs:
+  run-film-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置JDK17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Maven打包
+        run: mvn clean package -DskipTests
+
+      - name: 运行影评程序
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          GIST_ID: ${{ secrets.GIST_ID }}
+          GITHUB_PAT: ${{ secrets.GITHUB_PAT }}
+        run: java -jar target/springboottemplate-1.0-SNAPSHOT-jar-with-dependencies.jar
