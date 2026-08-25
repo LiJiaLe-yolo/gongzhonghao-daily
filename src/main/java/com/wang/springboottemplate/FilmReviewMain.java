@@ -20,12 +20,13 @@ public class FilmReviewMain {
     private static final String GIST_FILENAME = "film_used_movies.json";
     private static final double TMDB_MIN_VOTE = 6.8;
 
-    // 适配飞书单卡片 lark_md 上限，整体安全上限2300字符，影评正文控制 1100‑1500汉字
-    private static final int ARTICLE_MIN = 2100;
+    // 影评正文：1800‑2500汉字
+    private static final int ARTICLE_MIN = 1800;
     private static final int ARTICLE_MAX = 2500;
-    private static final int FEISHU_CARD_SAFE_MAX = 2550;
+    // 飞书lark_md安全总上限，卡片整体不能超过这个
+    private static final int FEISHU_CARD_SAFE_MAX = 2700;
 
-    private static final int MAX_TOKENS = 4096;
+    private static final int MAX_TOKENS = 6144;
     private static final int DEEPSEEK_RETRY = 2;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
@@ -38,7 +39,7 @@ public class FilmReviewMain {
     };
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
-            .readTimeout(90, TimeUnit.SECONDS)
+            .readTimeout(120, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
@@ -62,7 +63,6 @@ public class FilmReviewMain {
             System.out.println("候选标题：" + reviewResult.titles);
             System.out.println("影评正文长度：" + reviewResult.article.length());
 
-            // 全部内容放入单张飞书卡片，不再额外text消息
             sendFeishuCard(pickedMovie, reviewResult);
 
             System.out.println("飞书卡片推送完成");
@@ -168,25 +168,34 @@ public class FilmReviewMain {
     private static ReviewResult generateReview(String movieName) throws Exception {
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
-                    "⚠️重要：**只返回纯净JSON，绝对不要加```json代码块、不要任何解释、不要前置后置文字**。\n" +
+                    "⚠️强制约束：只返回**完整闭合纯净JSON**，禁止```json代码块，禁止任何前后说明文字，JSON必须完整不能截断！\n" +
                     "JSON结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
                     "titles：3个公众号爆款标题，带情绪钩子，适合影视号传播。\n" +
                     "article影评正文：\n" +
                     "1. 专业影评人风格，重镜头隐喻、人物困境、人性思辨；拒绝大段剧情复述，剧情极简点到为止。\n" +
                     "2. 开篇钩子切入，拆解内核，延伸现实共情，结尾金句收束；段落简短适合手机阅读。\n" +
-                    "3. 不要markdown格式，纯文本；**严格控制1100‑1500汉字，不能更长**。";
+                    "3. 不要markdown格式，纯文本；**严格控制1800‑2500汉字，输出完整JSON，不能半截中断**。";
 
             String contentRaw = callDeepSeek(prompt);
-            // 清洗：去掉大模型喜欢输出的 ```json / ``` 代码块标记
             contentRaw = stripCodeBlock(contentRaw).trim();
-            System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(200, contentRaw.length())));
+            System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(220, contentRaw.length())));
+
+            if(contentRaw.isBlank()){
+                System.out.println("AI返回为空，重试");
+                continue;
+            }
 
             JSONObject jo;
             try {
                 jo = JSON.parseObject(contentRaw);
             } catch (Exception e) {
                 System.out.printf("JSON解析失败，重试，err=%s%n", e.getMessage());
+                continue;
+            }
+            // 防御判空，防止NPE
+            if(jo == null){
+                System.out.println("parseObject返回null，重试");
                 continue;
             }
 
@@ -285,8 +294,7 @@ public class FilmReviewMain {
         body.put("files", files);
         RequestBody rb = RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder()
-                .url("https://api.github.com/gists/" + GIST_ID)
-                .addHeader("Authorization", "token " + GITHUB_PAT)
+                .url("https://api.github.com/gists/" + GITHUB_PAT)
                 .patch(rb)
                 .build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
@@ -297,7 +305,7 @@ public class FilmReviewMain {
     }
 
     /**
-     * 单张飞书卡片：元信息 + 3个标题 + 完整影评，内置安全字符截断，防止超出飞书lark_md上限
+     * 单张飞书卡片：元信息 + 3个标题 + 影评，内置安全字符截断
      */
     private static void sendFeishuCard(String movie, ReviewResult reviewResult) throws IOException {
         String titleBlock = "**备选标题：**\n" + String.join("\n", reviewResult.titles);
@@ -308,10 +316,9 @@ public class FilmReviewMain {
         mdSb.append("**完整影评正文**\n");
         mdSb.append(reviewResult.article);
 
-        // 安全截断，保证不超过飞书lark_md上限
         String mdContent = mdSb.toString();
         if(mdContent.length() > FEISHU_CARD_SAFE_MAX){
-            mdContent = mdContent.substring(0, FEISHU_CARD_SAFE_MAX - 80) + "\n……（篇幅受限截断）";
+            mdContent = mdContent.substring(0, FEISHU_CARD_SAFE_MAX - 100) + "\n……（卡片篇幅受限截断）";
         }
 
         JSONObject card = new JSONObject();
