@@ -22,9 +22,9 @@ public class FilmReviewMain {
     private static final String GIST_FILENAME = "film_used_movies.json";
     private static final double TMDB_MIN_VOTE = 6.8;
 
-    // 影评正文理想区间2200‑2400，软下限1200，低于1200丢弃
-    private static final int ARTICLE_IDEAL_MIN = 2200;
-    private static final int ARTICLE_SOFT_MIN = 1200;
+    // 影评正文理想区间2000‑2400，软下限1600，低于1600丢弃
+    private static final int ARTICLE_IDEAL_MIN = 2000;
+    private static final int ARTICLE_SOFT_MIN = 1600;
     private static final int ARTICLE_MAX = 2400;
     // 飞书单张卡片总安全上限(含markdown格式字符)
     private static final int FEISHU_CARD_SAFE_MAX = 2500;
@@ -98,7 +98,9 @@ public class FilmReviewMain {
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 candidates = fetchTmdbMovies();
                 currentFilmTag = FILM_TAGS[(int) (Math.random() * FILM_TAGS.length)];
+                System.out.println("[LOG] 使用TMDB接口选片，当前标签：" + currentFilmTag);
             } else {
+                System.out.println("[LOG] TMDB_API_KEY为空，使用AI生成电影池");
                 candidates = aiGenerateTaggedMoviePool();
             }
             if (candidates == null || candidates.isEmpty()) {
@@ -125,6 +127,7 @@ public class FilmReviewMain {
                     .build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                System.out.println("[LOG] TMDB response code=" + resp.code());
                 if (!resp.isSuccessful()) {
                     System.out.printf("TMDB接口调用失败 code=%d，降级AI风格选片%n", resp.code());
                     return aiGenerateTaggedMoviePool();
@@ -173,9 +176,10 @@ public class FilmReviewMain {
     private static ReviewResult generateReview(String movieName) throws Exception {
         ReviewResult fallbackResult = null;
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
+            System.out.printf("[LOG] 影评生成第%d轮重试%n", i+1);
             String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
                     "⚠️强制约束：只返回**完整闭合纯净JSON**，禁止```json代码块，禁止任何前后说明文字，JSON必须完整不能截断！\n" +
-                    "⚠️硬性字数：影评正文汉字严格控制在2200‑2400，**绝对不要超过2400字**，内容饱满，不要简短简写！\n" +
+                    "⚠️硬性字数：影评正文汉字严格控制在2000‑2400，**绝对不要超过2400字**，内容饱满，不要简短简写！\n" +
                     "JSON结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
                     "titles：3个公众号爆款标题，带情绪钩子，适合影视号传播。\n" +
@@ -184,12 +188,19 @@ public class FilmReviewMain {
                     "2. 开篇钩子切入，拆解内核，延伸现实共情，结尾金句收束；段落简短适合手机阅读。\n" +
                     "3. 不要markdown格式，纯文本。";
 
-            String contentRaw = callDeepSeek(prompt);
+            String contentRaw;
+            try {
+                contentRaw = callDeepSeek(prompt);
+            }catch (IOException ex){
+                System.err.println("[ERROR] callDeepSeek IO异常："+ex.getMessage());
+                TimeUnit.SECONDS.sleep(2);
+                continue;
+            }
             contentRaw = stripCodeBlock(contentRaw).trim();
             System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(220, contentRaw.length())));
 
             if (contentRaw.isBlank()) {
-                System.out.println("AI返回为空，休眠2s后重试");
+                System.out.println("[WARN] AI返回为空，休眠2s后重试");
                 TimeUnit.SECONDS.sleep(2);
                 continue;
             }
@@ -209,7 +220,7 @@ public class FilmReviewMain {
             String article = jo.getString("article");
             JSONArray titleArr = jo.getJSONArray("titles");
             if (article == null || titleArr == null || titleArr.size() != 3) {
-                System.out.println("字段缺失，重试生成");
+                System.out.println("[WARN]字段缺失，重试生成");
                 continue;
             }
 
@@ -218,11 +229,13 @@ public class FilmReviewMain {
             temp.article = article;
 
             int len = article.length();
+            System.out.printf("[LOG]本轮稿件长度：%d，理想区间[%d,%d]，软下限%d%n", len,ARTICLE_IDEAL_MIN,ARTICLE_MAX,ARTICLE_SOFT_MIN);
             if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_MAX) {
+                System.out.println("[LOG]拿到理想长度稿件，直接返回");
                 return temp;
             }
             if (len >= ARTICLE_SOFT_MIN) {
-                System.out.printf("未达到理想长度2200，当前长度：%d，作为兜底候选保存%n", len);
+                System.out.printf("未达到理想长度%d，当前长度：%d，作为兜底候选保存%n", ARTICLE_IDEAL_MIN, len);
                 fallbackResult = temp;
             } else {
                 System.out.printf("稿件过短直接丢弃，当前长度：%d%n", len);
@@ -264,14 +277,24 @@ public class FilmReviewMain {
 
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_RETRY; r++) {
+            System.out.printf("[LOG] DeepSeek接口调用，第%d次请求%n", r+1);
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                System.out.println("[LOG] DeepSeek http status=" + resp.code());
                 String raw = resp.body().string();
                 if (!resp.isSuccessful()) {
                     throw new IOException("DeepSeek调用失败 code=" + resp.code() + " body=" + raw);
                 }
                 JSONObject jo = JSON.parseObject(raw);
-                return jo.getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("message").getString("content").trim();
+                String modelContent = jo.getJSONArray("choices").getJSONObject(0)
+                        .getJSONObject("message").getString("content");
+                if(modelContent == null || modelContent.isBlank()){
+                    System.out.println("[WARN] DeepSeek接口调用成功，但返回message.content为空字符串");
+                    return "";
+                }
+                //打印片段用于调试
+                String snippet = modelContent.substring(0,Math.min(600,modelContent.length()));
+                System.out.println("[LOG]模型返回content片段："+snippet);
+                return modelContent.trim();
             } catch (IOException e) {
                 lastEx = e;
                 System.err.printf("DeepSeek调用异常，第%d次重试：%s%n", r + 1, e.getMessage());
@@ -288,6 +311,7 @@ public class FilmReviewMain {
                 .get()
                 .build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+            System.out.println("[LOG] Gist读取接口 status="+resp.code());
             if (!resp.isSuccessful()) {
                 throw new IOException("读取Gist失败 " + resp.code());
             }
@@ -321,6 +345,7 @@ public class FilmReviewMain {
                     .build();
 
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                System.out.println("[LOG] Gist更新接口 status="+resp.code());
                 if (!resp.isSuccessful()) {
                     String respBody = resp.body() != null ? resp.body().string() : "";
                     System.err.printf("更新Gist失败 code=%d, resp=%s%n", resp.code(), respBody);
@@ -369,6 +394,7 @@ public class FilmReviewMain {
         RequestBody rb = RequestBody.create(card.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+            System.out.println("[LOG]飞书卡片推送 http status="+resp.code());
             if (!resp.isSuccessful()) {
                 System.err.println("飞书卡片推送异常：code=" + resp.code());
             }
