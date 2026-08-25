@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 public class FilmReviewMain {
-    // 环境变量配置
     private static final String DEEPSEEK_API_KEY = System.getenv("DEEPSEEK_API_KEY");
     private static final String FEISHU_WEBHOOK = System.getenv("FEISHU_WEBHOOK");
     private static final String TMDB_API_KEY = System.getenv("TMDB_API_KEY");
@@ -22,7 +21,6 @@ public class FilmReviewMain {
     private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
 
-    // 业务固定参数
     private static final double TMDB_MIN_VOTE = 6.8;
     private static final int TARGET_MIN = 2000;
     private static final int TARGET_MAX = 3000;
@@ -31,7 +29,6 @@ public class FilmReviewMain {
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
 
-    // 公众号爆款影片风格Tag池
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态",
             "人性深度、自我救赎",
@@ -40,7 +37,6 @@ public class FilmReviewMain {
             "温情治愈、治愈内耗"
     };
 
-    // 全局HTTP客户端
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(90, TimeUnit.SECONDS)
@@ -48,14 +44,13 @@ public class FilmReviewMain {
             .retryOnConnectionFailure(true)
             .build();
 
-    // 全局当前影片风格标签
     private static String currentFilmTag = "";
 
     public static void main(String[] args) {
         try {
             System.out.println("===== 影评生成任务启动 =====");
             checkEnv();
-           <String> usedMovies = loadUsedFromGist();
+            List<String> usedMovies = loadUsedFromGist();
             System.out.println("已处理电影数量：" + usedMovies.size());
 
             String pickedMovie = pickOneMovie(usedMovies);
@@ -80,7 +75,6 @@ public class FilmReviewMain {
         }
     }
 
-    // 环境变量校验
     private static void checkEnv() throws Exception {
         if (DEEPSEEK_API_KEY == null || DEEPSEEK_API_KEY.isBlank()) {
             throw new Exception("环境变量 DEEPSEEK_API_KEY 未配置");
@@ -93,9 +87,9 @@ public class FilmReviewMain {
         }
     }
 
-    // 电影挑选核心逻辑：优先TMDB，失败降级AI风格选片
-    private static String<String> used) throws Exception {
-        for (int i =< PICK_MAX_RETRY; i<String> candidates;
+    private static String pickOneMovie(List<String> used) throws Exception {
+        for (int i = 0; i < PICK_MAX_RETRY; i++) {
+            List<String> candidates;
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 candidates = fetchTmdbMovies();
                 currentFilmTag = FILM_TAGS[(int) (Math.random() * FILM_TAGS.length)];
@@ -118,8 +112,8 @@ public class FilmReviewMain {
         throw new Exception("多次尝试找不到未使用电影，请扩充候选池或清理Gist记录");
     }
 
-    // 拉取TMDB高分热门电影
-    private static List<String> fetchTmdbMovies<String<>();
+    private static List<String> fetchTmdbMovies() {
+        List<String> list = new ArrayList<>();
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/popular")
                     .newBuilder()
@@ -155,49 +149,44 @@ public class FilmReviewMain {
         return list.isEmpty() ? aiGenerateTaggedMoviePool() : list;
     }
 
-    // AI按风格Tag生成电影候选池
     private static List<String> aiGenerateTaggedMoviePool() throws IOException {
         int tagIndex = (int) (Math.random() * FILM_TAGS.length);
         currentFilmTag = FILM_TAGS[tagIndex];
-        String prompt = String.format("""
-你是公众号影视选题编辑，请根据风格标签【%s】，输出10部国内外高分经典电影中文名称。
-要求：
-1. 严格贴合标签风格，题材统一、调性一致；
-2. 避开烂片、冷门小众片，全部是大众熟知、适合深度解读、自带流量的爆款潜质影片；
-3. 只输出纯净JSON数组，不要解释、不要序号、不要多余文字。
-""", currentFilmTag);
+
+        String prompt = "你是公众号影视选题编辑，请根据风格标签【" + currentFilmTag + "】，输出10部国内外高分经典电影中文名称。\n" +
+                "要求：\n" +
+                "1. 严格贴合标签风格，题材统一、调性一致；\n" +
+                "2. 避开烂片、冷门小众片，全部是大众熟知、适合深度解读、自带流量的爆款潜质影片；\n" +
+                "3. 只输出纯净JSON数组，不要解释、不要序号、不要多余文字。";
 
         String resp = callDeepSeek(prompt);
         JSONArray arr = JSON.parseArray(resp);
         return arr.toList(String.class);
     }
 
-    // 生成公众号爆款风格影评
     private static String generateReview(String movieName) throws Exception {
-        for (int i = 0; i< ARTICLE_MAX_RETRY; i++) {
-            String prompt = String.format("""
-请为电影《%s》撰写一篇2000-3000字的公众号爆款深度影评，影片核心风格标签：【%s】，严格遵守以下所有写作规范，禁止违规输出：
-
-一、核心定位：拒绝小学生剧情复述，以「成年人现实共鸣+人性深度解读」为核心，贴合标签调性，观点犀利、共情力拉满，适配公众号传播，自带爆款属性。
-二、文章结构（必须严格执行）：
-1. 开篇钩子：用一句扎心、戳中当代年轻人痛点的现实金句引入，瞬间抓住读者，不铺垫剧情；
-2. 极简剧情铺垫：用100字以内简述核心主线，只讲关键冲突，不堆砌细节、不流水账；
-3. 深度内核解读：结合影片镜头、人物选择、剧情隐喻，拆解电影背后的人性、社会、成长、遗憾等深层逻辑，贴合对应风格标签；
-4. 现实共鸣延伸：从电影落地到普通人的生活、职场、情感、内耗、成长困境，让读者代入自身，产生共情；
-5. 观点总结升华：输出独立价值观，不鸡汤、不空洞，有态度、有思考；
-6. 结尾金句收尾：凝练一句高级金句，提升全文质感，适合读者摘抄转发。
-
-三、行文要求：
-1. 段落简短精致，每段3-5行，适配手机端阅读，无大段密集文字；
-2. 语言温柔又有力量，克制不矫情、深刻不晦涩；
-3. 全程围绕影片风格标签创作，风格统一不跑偏；
-4. 无标题、无前言、无摘要、无后记、无特殊符号、无markdown格式，纯正文，可直接粘贴公众号发布；
-5. 字数严格锁定2000-3000字，不足或超额均无效。
-""", movieName, currentFilmTag);
+        for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
+            String prompt = "请为电影《" + movieName + "》撰写一篇2000-3000字的公众号爆款深度影评，影片核心风格标签：【" + currentFilmTag + "】，严格遵守以下所有写作规范，禁止违规输出：\n" +
+                    "\n" +
+                    "一、核心定位：拒绝小学生剧情复述，以「成年人现实共鸣+人性深度解读」为核心，贴合标签调性，观点犀利、共情力拉满，适配公众号传播，自带爆款属性。\n" +
+                    "二、文章结构（必须严格执行）：\n" +
+                    "1. 开篇钩子：用一句扎心、戳中当代年轻人痛点的现实金句引入，瞬间抓住读者，不铺垫剧情；\n" +
+                    "2. 极简剧情铺垫：用100字以内简述核心主线，只讲关键冲突，不堆砌细节、不流水账；\n" +
+                    "3. 深度内核解读：结合影片镜头、人物选择、剧情隐喻，拆解电影背后的人性、社会、成长、遗憾等深层逻辑，贴合对应风格标签；\n" +
+                    "4. 现实共鸣延伸：从电影落地到普通人的生活、职场、情感、内耗、成长困境，让读者代入自身，产生共情；\n" +
+                    "5. 观点总结升华：输出独立价值观，不鸡汤、不空洞，有态度、有思考；\n" +
+                    "6. 结尾金句收尾：凝练一句高级金句，提升全文质感，适合读者摘抄转发。\n" +
+                    "\n" +
+                    "三、行文要求：\n" +
+                    "1. 段落简短精致，每段3-5行，适配手机端阅读，无大段密集文字；\n" +
+                    "2. 语言温柔又有力量，克制不矫情、深刻不晦涩；\n" +
+                    "3. 全程围绕影片风格标签创作，风格统一不跑偏；\n" +
+                    "4. 无标题、无前言、无摘要、无后记、无特殊符号、无markdown格式，纯正文，可直接粘贴公众号发布；\n" +
+                    "5. 字数严格锁定2000-3000字，不足或超额均无效。";
 
             String content = callDeepSeek(prompt);
             content = content.trim();
-            if (content.length() >= TARGET_MIN && content.length<= TARGET_MAX) {
+            if (content.length() >= TARGET_MIN && content.length() <= TARGET_MAX) {
                 return content;
             }
             System.out.printf("稿件长度不达标，重试生成，当前长度：%d%n", content.length());
@@ -205,7 +194,6 @@ public class FilmReviewMain {
         throw new Exception("多次生成无法得到符合长度的爆款影评");
     }
 
-    // DeepSeek接口调用+重试
     private static String callDeepSeek(String prompt) throws IOException {
         JSONObject body = new JSONObject();
         body.put("model", DEEPSEEK_MODEL);
@@ -221,7 +209,7 @@ public class FilmReviewMain {
                 .build();
 
         IOException lastEx = null;
-        for (int r = <= DEEPSEEK_RETRY; r++) {
+        for (int r = 0; r <= DEEPSEEK_RETRY; r++) {
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                 String raw = resp.body().string();
                 if (!resp.isSuccessful()) {
@@ -238,8 +226,7 @@ public class FilmReviewMain {
         throw new IOException("DeepSeek重试耗尽", lastEx);
     }
 
-    // 从Gist读取已使用电影列表
-    private static<String> loadUsedFromGist() throws IOException {
+    private static List<String> loadUsedFromGist() throws IOException {
         String url = "https://api.github.com/gists/" + GIST_ID;
         Request req = new Request.Builder()
                 .url(url)
@@ -253,7 +240,8 @@ public class FilmReviewMain {
             JSONObject gist = JSON.parseObject(resp.body().string());
             JSONObject files = gist.getJSONObject("files");
             if(files == null || !files.containsKey(GIST_FILENAME)){
-                System.out.println("Gist内目标文件不存在，初始化空已使用列表");<>();
+                System.out.println("Gist内目标文件不存在，初始化空已使用列表");
+                return new ArrayList<>();
             }
             JSONObject fileObj = files.getJSONObject(GIST_FILENAME);
             String content = fileObj.getString("content");
@@ -261,8 +249,7 @@ public class FilmReviewMain {
         }
     }
 
-    // 更新Gist已使用电影列表
-    private static void saveUsed<String> list) throws IOException {
+    private static void saveUsedToGist(List<String> list) throws IOException {
         JSONObject fileItem = new JSONObject();
         fileItem.put("content", JSON.toJSONString(list));
         JSONObject files = new JSONObject();
@@ -282,7 +269,6 @@ public class FilmReviewMain {
         }
     }
 
-    // 飞书卡片推送（带风格标签预览）
     private static void sendFeishuCard(String movie, String article) throws IOException {
         String text = article.length() > 2800 ? article.substring(0, 2800) + "\n……（内容截断，完整稿件见程序输出）" : article;
         JSONObject card = new JSONObject();
@@ -303,13 +289,12 @@ public class FilmReviewMain {
         }
     }
 
-    // 飞书纯文本报错推送
     private static void sendFeishuText(String txt) throws IOException {
         JSONObject jo = JSONObject.of("msg_type", "text", "content", JSONObject.of("text", txt));
         RequestBody rb = RequestBody.create(jo.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try(Response resp = HTTP_CLIENT.newCall(req).execute()){
-            // 无需处理结果
+            // ignore
         }
     }
 }
