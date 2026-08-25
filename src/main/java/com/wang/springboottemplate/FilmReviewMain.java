@@ -19,9 +19,13 @@ public class FilmReviewMain {
     private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
     private static final double TMDB_MIN_VOTE = 6.8;
-    private static final int TARGET_MIN = 2000;
-    private static final int TARGET_MAX = 3000;
-    private static final int MAX_TOKENS = 8192;
+
+    // 适配飞书单卡片 lark_md 上限，整体安全上限2300字符，影评正文控制 1100‑1500汉字
+    private static final int ARTICLE_MIN = 1100;
+    private static final int ARTICLE_MAX = 1500;
+    private static final int FEISHU_CARD_SAFE_MAX = 2300;
+
+    private static final int MAX_TOKENS = 4096;
     private static final int DEEPSEEK_RETRY = 2;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
@@ -40,7 +44,6 @@ public class FilmReviewMain {
             .build();
     private static String currentFilmTag = "";
 
-    // 内部实体：承载标题列表+影评正文
     public static class ReviewResult {
         public List<String> titles;
         public String article;
@@ -57,23 +60,18 @@ public class FilmReviewMain {
 
             ReviewResult reviewResult = generateReview(pickedMovie);
             System.out.println("候选标题：" + reviewResult.titles);
-            System.out.println("生成稿件长度：" + reviewResult.article.length());
+            System.out.println("影评正文长度：" + reviewResult.article.length());
 
-            // 卡片展示元信息与摘要，单独text消息推送完整全文
+            // 全部内容放入单张飞书卡片，不再额外text消息
             sendFeishuCard(pickedMovie, reviewResult);
-            sendFeishuText("🎬《" + pickedMovie + "》完整影评正文：\n\n" + reviewResult.article);
 
-            System.out.println("飞书推送完成");
+            System.out.println("飞书卡片推送完成");
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
             System.out.println("Gist已更新，任务结束");
         } catch (Exception e) {
             System.err.println("任务异常：" + e.getMessage());
             e.printStackTrace();
-            try {
-                sendFeishuText("【影评任务失败】异常信息：" + e.getMessage());
-            } catch (Exception ignored) {
-            }
         }
     }
 
@@ -159,9 +157,10 @@ public class FilmReviewMain {
         String prompt = "你是公众号影视选题编辑，请根据风格标签【" + currentFilmTag + "】，输出10部国内外高分经典电影中文名称。\n" +
                 "要求：\n" +
                 "1. 严格贴合标签风格，题材统一、调性一致；\n" +
-                "2. 避开烂片、影片要有质量、适合深度解读、自带流量的爆款潜质影片；\n" +
+                "2. 避开烂片、冷门小众片，全部是大众熟知、适合深度解读、自带流量的爆款潜质影片；\n" +
                 "3. 只输出纯净JSON数组，不要解释、不要序号、不要多余文字。";
         String resp = callDeepSeek(prompt);
+        resp = stripCodeBlock(resp);
         JSONArray arr = JSON.parseArray(resp);
         return arr.toList(String.class);
     }
@@ -169,25 +168,35 @@ public class FilmReviewMain {
     private static ReviewResult generateReview(String movieName) throws Exception {
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             String prompt = "你是资深专业影评人，为电影《" + movieName + "》创作，影片风格标签【" + currentFilmTag + "】。\n" +
-                    "输出格式要求：**只返回JSON对象，禁止任何额外说明文字**，结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
+                    "⚠️重要：**只返回纯净JSON，绝对不要加```json代码块、不要任何解释、不要前置后置文字**。\n" +
+                    "JSON结构：{\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整影评正文\"}\n" +
                     "\n" +
-                    "titles字段：输出3个公众号爆款标题，有情绪钩子，适配影视号传播。\n" +
-                    "article影评正文写作规范：\n" +
-                    "1. 专业影评人视角，克制高级，重镜头隐喻、人物困境、社会人性思辨；**拒绝大段剧情复述，剧情仅极简点到为止，不做故事流水账**。\n" +
-                    "2. 开篇使用扎心现实钩子切入；拆解人物选择、镜头语言、影片背后的精神内核；延伸当代普通人现实处境，带来共情思考；结尾金句收束。\n" +
-                    "3. 段落简短，适配手机阅读；无markdown、无标题，纯正文文本；字数严格2000‑3000字。";
+                    "titles：3个公众号爆款标题，带情绪钩子，适合影视号传播。\n" +
+                    "article影评正文：\n" +
+                    "1. 专业影评人风格，重镜头隐喻、人物困境、人性思辨；拒绝大段剧情复述，剧情极简点到为止。\n" +
+                    "2. 开篇钩子切入，拆解内核，延伸现实共情，结尾金句收束；段落简短适合手机阅读。\n" +
+                    "3. 不要markdown格式，纯文本；**严格控制1100‑1500汉字，不能更长**。";
 
             String contentRaw = callDeepSeek(prompt);
-            contentRaw = contentRaw.trim();
-            JSONObject jo = JSON.parseObject(contentRaw);
-            String article = jo.getString("article");
-            JSONArray titleArr = jo.getJSONArray("titles");
+            // 清洗：去掉大模型喜欢输出的 ```json / ``` 代码块标记
+            contentRaw = stripCodeBlock(contentRaw).trim();
+            System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(200, contentRaw.length())));
 
-            if(article == null || titleArr == null){
-                System.out.printf("返回JSON解析异常，重试生成%n");
+            JSONObject jo;
+            try {
+                jo = JSON.parseObject(contentRaw);
+            } catch (Exception e) {
+                System.out.printf("JSON解析失败，重试，err=%s%n", e.getMessage());
                 continue;
             }
-            if (article.length() >= TARGET_MIN && article.length() <= TARGET_MAX) {
+
+            String article = jo.getString("article");
+            JSONArray titleArr = jo.getJSONArray("titles");
+            if(article == null || titleArr == null || titleArr.size()!=3){
+                System.out.println("字段缺失，重试生成");
+                continue;
+            }
+            if (article.length() >= ARTICLE_MIN && article.length() <= ARTICLE_MAX) {
                 ReviewResult res = new ReviewResult();
                 res.titles = titleArr.toList(String.class);
                 res.article = article;
@@ -195,7 +204,22 @@ public class FilmReviewMain {
             }
             System.out.printf("稿件长度不达标，重试生成，当前长度：%d%n", article.length());
         }
-        throw new Exception("多次生成无法得到符合长度的爆款影评");
+        throw new Exception("多次生成无法得到符合长度的影评");
+    }
+
+    /**
+     * 去除 ```json ... ``` 代码块包裹
+     */
+    private static String stripCodeBlock(String text){
+        String s = text.trim();
+        if(s.startsWith("```")){
+            int firstNewLine = s.indexOf('\n');
+            int lastBackTick = s.lastIndexOf("```");
+            if(lastBackTick > firstNewLine){
+                s = s.substring(firstNewLine+1, lastBackTick);
+            }
+        }
+        return s.trim();
     }
 
     private static String callDeepSeek(String prompt) throws IOException {
@@ -273,21 +297,27 @@ public class FilmReviewMain {
     }
 
     /**
-     * 飞书卡片：展示元信息+标题列表+文章开头片段，不承载全文
+     * 单张飞书卡片：元信息 + 3个标题 + 完整影评，内置安全字符截断，防止超出飞书lark_md上限
      */
     private static void sendFeishuCard(String movie, ReviewResult reviewResult) throws IOException {
         String titleBlock = "**备选标题：**\n" + String.join("\n", reviewResult.titles);
-        String snippet = reviewResult.article.length() > 600 ? reviewResult.article.substring(0,600)+"\n……（完整影评见下方文本消息）" : reviewResult.article;
+        StringBuilder mdSb = new StringBuilder();
+        mdSb.append("**🎬《").append(movie).append("》影评产出**\n");
+        mdSb.append("**影片风格：").append(currentFilmTag).append("**\n\n");
+        mdSb.append(titleBlock).append("\n\n");
+        mdSb.append("**完整影评正文**\n");
+        mdSb.append(reviewResult.article);
+
+        // 安全截断，保证不超过飞书lark_md上限
+        String mdContent = mdSb.toString();
+        if(mdContent.length() > FEISHU_CARD_SAFE_MAX){
+            mdContent = mdContent.substring(0, FEISHU_CARD_SAFE_MAX - 80) + "\n……（篇幅受限截断）";
+        }
 
         JSONObject card = new JSONObject();
         card.put("msg_type", "interactive");
         JSONObject ele = new JSONObject();
         ele.put("tag", "div");
-        String mdContent = "**🎬《" + movie + "》影评任务产出**\n" +
-                "**影片风格：" + currentFilmTag + "**\n\n" +
-                titleBlock + "\n\n" +
-                "**正文片段预览：**\n"+ snippet;
-
         ele.put("text", JSONObject.of("tag", "lark_md", "content", mdContent));
         JSONArray elements = new JSONArray();
         elements.add(ele);
@@ -298,17 +328,8 @@ public class FilmReviewMain {
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
             if (!resp.isSuccessful()) {
-                System.err.println("飞书卡片推送异常：" + resp.code());
+                System.err.println("飞书卡片推送异常：code=" + resp.code());
             }
-        }
-    }
-
-    private static void sendFeishuText(String txt) throws IOException {
-        JSONObject jo = JSONObject.of("msg_type", "text", "content", JSONObject.of("text", txt));
-        RequestBody rb = RequestBody.create(jo.toString(), MediaType.get("application/json; charset=utf-8"));
-        Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
-        try(Response resp = HTTP_CLIENT.newCall(req).execute()){
-            // ignore
         }
     }
 }
