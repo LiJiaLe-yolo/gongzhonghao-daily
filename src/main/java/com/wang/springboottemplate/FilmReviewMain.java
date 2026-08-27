@@ -45,7 +45,7 @@ public class FilmReviewMain {
             "温情治愈、治愈内耗"
     };
 
-    // 主影评Prompt，强化禁止编造剧情幻觉
+    // 主影评Prompt，强化禁止编造剧情幻觉，%%转义所有字面%
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人，面向普通公众号读者，不是专业影迷，拒绝晦涩学院派话术。\n" +
             "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发、评论数据，拒绝纯剧情流水账复述。\n" +
@@ -59,7 +59,7 @@ public class FilmReviewMain {
             "4.正文严格四段式结构：\n" +
             "①开篇入题：抛出核心情绪/核心观点\n" +
             "②精简剧情铺垫：控制200字以内，只选取支撑核心观点的真实关键情节、名场面，禁止完整复述全片剧情，禁止虚构情节。\n" +
-            "③主体解读（占全文60%篇幅）：拆分3‑4个解读角度，每一个观点必须绑定电影真实存在的细节、台词、人物行为；每段解读末尾落地映射普通人现实生活感悟，拒绝悬浮空谈。拿不准的影片细节直接舍弃，不要自行编造。\n" +
+            "③主体解读（占全文60%%篇幅）：拆分3‑4个解读角度，每一个观点必须绑定电影真实存在的细节、台词、人物行为；每段解读末尾落地映射普通人现实生活感悟，拒绝悬浮空谈。拿不准的影片细节直接舍弃，不要自行编造。\n" +
             "④结尾升华：输出可复制摘抄金句，增加评论区互动引导话术。\n" +
             "\n" +
             "行文格式约束：\n" +
@@ -75,7 +75,7 @@ public class FilmReviewMain {
             "现在为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "重点：重人物命运、人性思辨、现实共情；剧情只做极简铺垫。绝对禁止杜撰任何影片细节，不清楚就不写。只返回JSON，不要输出JSON以外任何内容。";
 
-    // 兜底降级Prompt，重试后期使用，强化防幻觉
+    // 兜底降级Prompt，重试后期使用，强化防幻觉，%%转义字面%
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人，面向普通大众读者。\n" +
             "🔴最高约束：严禁编造剧情、台词、人物细节，所有引用素材必须是影片真实内容，不确定就省略，禁止脑补。\n" +
@@ -146,8 +146,9 @@ public class FilmReviewMain {
         for (int i = 0; i < PICK_MAX_RETRY; i++) {
             List<String> candidates;
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
-                candidates = fetchTmdbMovies();
+                // 先随机标签，再拉取影片
                 currentFilmTag = FILM_TAGS[(int) (Math.random() * FILM_TAGS.length)];
+                candidates = fetchTmdbMovies();
                 System.out.println("[LOG] 使用TMDB接口选片，当前标签：" + currentFilmTag);
             } else {
                 System.out.println("[LOG] TMDB_API_KEY为空，使用AI生成电影池");
