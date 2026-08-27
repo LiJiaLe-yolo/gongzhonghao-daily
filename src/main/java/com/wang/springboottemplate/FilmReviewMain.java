@@ -59,10 +59,11 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
-    // ================= Prompt 模板 (已强化加粗要求) =================
+    // ================= Prompt 模板 =================
+    // 保留结尾反问句（引发思考），禁止评论区互动引导套话
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
-            "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发、评论数据，拒绝纯剧情流水账复述。\n" +
+            "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发数据，拒绝纯剧情流水账复述。\n" +
             "\n" +
             "🔴【最高优先级·防幻觉事实约束】\n" +
             "所有剧情、人物、细节只能使用下面给出的TMDB官方简介素材，严禁编造剧情、人物、台词、名场面、细节伏笔。不知道、拿不准的细节直接舍弃，禁止脑补杜撰。\n" +
@@ -72,17 +73,17 @@ public class FilmReviewMain {
             "\n" +
             "📋【完整工作流程，必须依次执行】\n" +
             "Step1 提炼一句明确的中心论点：不是剧情复述，是可被影片细节支撑的价值判断。\n" +
-            "Step2 产出3条公众号爆款标题，覆盖共鸣式、反差冲突式、提问钩子式，禁止“XX观后感”“浅析XX”。\n" +
+            "Step2 产出3条公众号爆款标题，覆盖共鸣式、反差冲突式、提问钩子式，禁止"XX观后感""浅析XX"。\n" +
             "Step3 设计开头钩子：100字以内，情绪/悬念切入，不要堆砌导演幕后资料。\n" +
             "Step4 正文四段式骨架：\n" +
             "①开篇入题抛出中心观点\n" +
             "②精简剧情铺垫控制200字以内，只写支撑观点的真实关键情节，禁止完整复述全片\n" +
             "③主体解读（占全文60%%篇幅），拆分3‑4个解读角度；每一个观点绑定影片真实细节；结尾落地普通人现实感悟；拿不准细节直接舍弃。长文在40%%‑60%%位置设置一处阅读钩子反问。\n" +
-            "④结尾升华，输出可摘抄金句，结尾必须使用问句做评论区互动引导。\n" +
+            "④结尾升华，输出可摘抄金句；结尾使用一句有力的反问句引发读者内心思考，自然收束全文。\n" +
             "Step5 去AI味润色：避免机械排比、模板化升华、空洞形容词；长短句交错；全文至少包含2处反问句；拒绝AI套话诸如引人深思、值得一看。\n" +
             "Step6 公众号排版约束：每段不宜过长，适配手机阅读；**必须将中心论点、核心金句、强烈情绪共鸣的句子使用 Markdown 的 **加粗** 语法进行高亮展示**；少写镜头语言、剪辑配乐等专业术语。\n" +
             "\n" +
-            "🚫公众号合规铁律：正文不要放链接、微信号；不要出现“点赞转发收藏”指令。\n" +
+            "🚫公众号合规铁律：正文不要放链接、微信号；不要出现"点赞转发收藏"指令；**严禁出现"评论区聊聊""评论区等你""欢迎留言""你怎么看，欢迎讨论"等任何引导读者去评论区互动的套话**。结尾的反问句仅用于引发读者内心思考，不要引导互动。\n" +
             "\n" +
             "✅【输出JSON强制格式，只输出JSON，禁止、禁止注释、禁止额外说明】\n" +
             "{\n" +
@@ -99,15 +100,16 @@ public class FilmReviewMain {
             "🔴最高约束：所有剧情细节只能使用下面TMDB官方简介素材，严禁编造剧情、台词、人物细节；不确定的内容直接省略，禁止脑补；区分事实与主观观点。\n" +
             "TMDB官方简介素材：\n" +
             "\"%s\"\n" +
-            "写作逻辑：少复述剧情，多输出人性感悟现实共鸣；全文至少2个反问；结尾问句互动。\n" +
+            "写作逻辑：少复述剧情，多输出人性感悟现实共鸣；全文至少2个反问；结尾使用反问句引发思考。\n" +
             "\n" +
             "写作规范：\n" +
             "1.输出一句中心论点；输出3条公众号钩子标题，禁止观后感、浅析类标题。\n" +
             "2.开篇简短抓情绪；剧情简介最大150字，只写真实关键片段。\n" +
             "3.主体3‑4个解读角度，全部基于影片真实细节，落地普通人生活感受。\n" +
-            "4.结尾金句+问句形式引导；段落短小适配手机；去除AI模板化套话。\n" +
+            "4.结尾金句+一句有力反问引发读者内心思考，自然收束；段落短小适配手机；去除AI模板化套话。\n" +
             "5.**必须将核心金句、情绪共鸣点使用 Markdown 的 **加粗** 语法高亮**。\n" +
             "6.【硬性强制】正文汉字严格1800‑2500，字数不够直接作废。\n" +
+            "7.**严禁出现"评论区聊聊""评论区等你""欢迎留言"等引导评论区互动的套话**。结尾反问仅用于引发思考，不引导互动。\n" +
             "\n" +
             "✅输出JSON格式，禁止代码块、多余文字：\n" +
             "{\n" +
@@ -130,11 +132,11 @@ public class FilmReviewMain {
             "Step1 提炼一句有力中心论点。\n" +
             "Step2 生成3组公众号钩子标题，拒绝观后感、浅析。\n" +
             "Step3 开篇情绪钩子切入。剧情简述严格压缩，只写简介内存在的事实。\n" +
-            "Step4 主体部分大量做现实引申、人性思辨、普通人生活对照，拆分3‑4个解读角度；文中至少2处反问，中段设置一处读者互动反问。\n" +
-            "Step5 结尾金句，必须问句收尾引导评论。\n" +
+            "Step4 主体部分大量做现实引申、人性思辨、普通人生活对照，拆分3‑4个解读角度；文中至少2处反问，中段设置一处读者内心反问。\n" +
+            "Step5 结尾金句；结尾使用一句有力的反问句引发读者内心思考，自然收束全文。\n" +
             "Step6 手机阅读短段落，**必须将中心论点、核心金句、强烈情绪共鸣的句子使用 Markdown 的 **加粗** 语法进行高亮展示**，剔除AI套话。\n" +
             "\n" +
-            "🚫禁止链接、导流话术。\n" +
+            "🚫禁止链接、导流话术；**严禁出现"评论区聊聊""评论区等你""欢迎留言"等引导评论区互动的套话**。结尾反问仅用于引发读者内心思考，不引导互动。\n" +
             "【硬性强制】正文严格1800‑2500字符，必须达到该区间。允许现实感悟充分延展，但绝对不能编造电影里不存在的情节。\n" +
             "\n" +
             "✅仅输出JSON，不要代码块，不要额外文字：\n" +
@@ -705,6 +707,9 @@ public class FilmReviewMain {
             }
 
             article = cleanAiArticle(article);
+            // 清理评论区互动引导套话（保留正常反问句）
+            article = removeInteractionCTA(article);
+            
             ReviewResult temp = new ReviewResult();
             temp.centralArgument = centralArg;
             temp.titles = titleArr.toList(String.class);
@@ -735,6 +740,7 @@ public class FilmReviewMain {
         finalRes.centralArgument = fjo.getString("centralArgument");
         finalRes.titles = fjo.getJSONArray("titles").toList(String.class);
         finalRes.article = cleanAiArticle(fjo.getString("article"));
+        finalRes.article = removeInteractionCTA(finalRes.article);
 
         int finalLen = finalRes.article.length();
         System.out.printf("   🚨 保底轮产出，稿件长度=%d\n", finalLen);
@@ -752,6 +758,37 @@ public class FilmReviewMain {
             finalRes.article = finalRes.article.substring(0, ARTICLE_TARGET_MAX);
         }
         return finalRes;
+    }
+
+    /**
+     * 清理评论区互动引导套话（保留正常的反问句）
+     * 只移除明确的互动引导语，不影响文章中的思考性反问
+     */
+    private static String removeInteractionCTA(String article) {
+        if (article == null || article.isBlank()) return article;
+        
+        // 只清理明确的"引导评论区互动"套话
+        String[] ctaPhrases = {
+            "评论区聊聊", "评论区说说", "评论区见", "评论区等你",
+            "评论区聊起来", "评论区留言", "评论区告诉我",
+            "欢迎留言", "欢迎在评论区", "欢迎讨论", "欢迎分享",
+            "留言告诉我", "留言说说", "留言区见", "留言区等你",
+            "说说你的看法", "分享你的看法", "分享你的故事",
+            "你怎么看？欢迎讨论", "你怎么看，欢迎讨论",
+            "你觉得呢？欢迎留言", "你觉得呢，欢迎留言"
+        };
+        
+        String result = article;
+        for (String phrase : ctaPhrases) {
+            result = result.replace(phrase, "");
+        }
+        
+        // 清理因移除套话可能残留的孤立标点（如只剩问号但前面没有完整句子）
+        // 注意：这里不清理正常的反问句，只清理因CTA移除后残留的孤立标点
+        result = result.replaceAll("\\n{3,}", "\n\n");
+        result = result.trim();
+        
+        return result;
     }
 
     private static String cleanAiArticle(String text) {
@@ -820,7 +857,7 @@ public class FilmReviewMain {
                     int tEnd = temp.lastIndexOf('}');
                     if (tStart != -1 && tEnd > tStart) {
                         temp = temp.substring(tStart, tEnd + 1);
-                        JSON.parseObject(temp); // 验证是否合法JSON
+                        JSON.parseObject(temp);
                         modelContent = temp;
                     }
                 }
