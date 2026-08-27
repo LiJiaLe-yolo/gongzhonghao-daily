@@ -1,10 +1,8 @@
 package com.wang.springboottemplate;
-
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import okhttp3.*;
-
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -13,7 +11,6 @@ import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-
 public class FilmReviewMain {
     private static final String DEEPSEEK_API_KEY = System.getenv("DEEPSEEK_API_KEY");
     private static final String FEISHU_WEBHOOK = System.getenv("FEISHU_WEBHOOK");
@@ -28,23 +25,73 @@ public class FilmReviewMain {
     private static final int ARTICLE_IDEAL_MIN = 1800;
     private static final int ARTICLE_IDEAL_MAX = 2500;
     private static final int ARTICLE_SOFT_MIN = 1500;
-
-    // ========= 参数调整：调大max_tokens，降低temperature，提升输出确定性、支持更长文本 =========
+    // ========= 参数配置 =========
     private static final int MAX_TOKENS = 8192;
     private static final double TEMPERATURE = 0.12;
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
-    // 题材黑名单，过滤恐怖惊悚类，避免标签与影片严重错位
+
+    // TMDB 黑名单题材ID：恐怖、惊悚 永久过滤
+    private static final int GENRE_HORROR = 27;
+    private static final int GENRE_THRILLER = 53;
+
+    // 片名关键词黑名单
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
+
+    // ====================== 【超全量拓展TAG池｜36个细分标签】 ======================
+    // 全覆盖公众号爆款影评风格，细分6大维度，涵盖大众热门+小众文艺风，适配所有高分可影评影片
     private static final String[] FILM_TAGS = {
+            // 1.现实社会向（深度爆款、高共鸣）
             "现实扎心、人间百态",
-            "人性深度、自我救赎",
-            "青春成长、遗憾治愈",
             "社会讽刺、现实隐喻",
-            "温情治愈、治愈内耗"
+            "底层生活、人间真实",
+            "时代缩影、众生皆苦",
+            "市井烟火、平凡众生",
+            "阶层现实、生活真相",
+            
+            // 2.人性心理向（深度解读、高收藏）
+            "人性深度、善恶博弈",
+            "自我救赎、与己和解",
+            "人性弱点、现实拷问",
+            "平凡人性、微光治愈",
+            "人心复杂、世事难料",
+            "执念放下、人生释然",
+            
+            // 3.青春成长向（年轻受众、高转发）
+            "青春成长、遗憾治愈",
+            "年少懵懂、成长阵痛",
+            "时光怀旧、岁月温柔",
+            "成长取舍、直面人生",
+            "少年心事、岁岁念念",
+            "青春落幕、各自奔赴",
+            
+            // 4.温情治愈向（情绪舒缓、泛受众）
+            "温情治愈、治愈内耗",
+            "人间温暖、治愈疲惫",
+            "平凡烟火、生活温柔",
+            "救赎治愈、抚平焦虑",
+            "岁月静好、温柔自愈",
+            "微小善意、人间微光",
+            
+            // 5.情感生活向（亲情爱情、日常共鸣）
+            "亲情羁绊、烟火人间",
+            "爱情遗憾、岁岁年年",
+            "原生家庭、成长突围",
+            "陪伴守护、平凡幸福",
+            "人间情爱、烟火余生",
+            "相守平凡、岁岁温柔",
+            
+            // 6.人生感悟文艺向（小众高级、质感文风）
+            "人生百态、世事通透",
+            "岁月沉淀、人间清醒",
+            "平凡人生、万般值得",
+            "生活感悟、人间烟火",
+            "得失随缘、人生释然",
+            "慢品人间、岁月温柔"
     };
-    // ========== 修改后的Prompt模板：移除封面、配图、自查报告，仅公众号爆款影评 ==========
+
+    // ========== Prompt模板 ==========
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
             "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发、评论数据，拒绝纯剧情流水账复述。\n" +
@@ -78,7 +125,7 @@ public class FilmReviewMain {
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "正文总汉字1800‑2500；不清楚的影片细节绝不编造，只返回JSON。";
-    // 兜底降级Prompt，重试后期，防幻觉、去AI味
+
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人。\n" +
             "🔴最高约束：所有剧情细节只能使用下面TMDB官方简介素材，严禁编造剧情、台词、人物细节；不确定的内容直接省略，禁止脑补；区分事实与主观观点。\n" +
@@ -108,24 +155,21 @@ public class FilmReviewMain {
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
+
     private static String currentFilmTag = "";
-    // 保存当前选中影片的TMDB完整详情
     private static TmdbMovieInfo currentTmdbMovieInfo = null;
 
+    // 实体类
     public static class ReviewResult {
         public String centralArgument;
         public List<String> titles;
         public String article;
     }
-
-    // 自定义异常：影片模型无法处理，需要重新选片
     public static class MovieCannotHandleException extends Exception {
         public MovieCannotHandleException(String msg) {
             super(msg);
         }
     }
-
-    // TMDB影片信息DTO
     public static class TmdbMovieInfo {
         public long id;
         public String title;
@@ -134,7 +178,6 @@ public class FilmReviewMain {
         public double voteAverage;
         public List<TmdbGenre> genres;
     }
-
     public static class TmdbGenre {
         public int id;
         public String name;
@@ -149,9 +192,10 @@ public class FilmReviewMain {
             ReviewResult reviewResult = null;
             String pickedMovie = null;
             currentTmdbMovieInfo = null;
-            // 在main层循环选片，遇到无法处理影片就重新选
+
             for (int attempt = 0; attempt < PICK_MAX_RETRY; attempt++) {
                 currentTmdbMovieInfo = null;
+                currentFilmTag = "";
                 pickedMovie = pickOneMovie(usedMovies);
                 System.out.println("选中电影：" + pickedMovie + "｜风格标签：" + currentFilmTag);
                 try {
@@ -159,11 +203,11 @@ public class FilmReviewMain {
                     break;
                 } catch (MovieCannotHandleException e) {
                     System.err.printf("[WARN] 当前影片[%s]模型无法处理，重新选片，msg=%s%n", pickedMovie, e.getMessage());
-                    // 加入已使用，避免重复选中这部坏片
                     usedMovies.add(pickedMovie);
                     currentTmdbMovieInfo = null;
                 }
             }
+
             if (reviewResult == null) {
                 throw new Exception("多次选片仍然无法产出影评");
             }
@@ -194,71 +238,119 @@ public class FilmReviewMain {
     }
 
     /**
-     * 选片主逻辑：
-     * 1.优先TMDB now_playing+popular拿到候选集合，交给大模型从中挑选适合公众号影评的影片；
-     * 2.大模型挑选不出合适，则按tag交给大模型拿经典片名，再回校TMDB搜索；
-     * 3.TMDB完全失效走纯AI兜底
-     * 返回电影中文片名，同时把完整tmdb信息写入静态变量currentTmdbMovieInfo
+     * 【升级版精准映射】TMDB影片类型自动匹配超全量TAG池
+     * 适配全品类高分影片，新增文艺、生活感悟类标签适配逻辑，匹配更精准、风格更多样
+     */
+    private static String autoMapFilmTagByGenres(TmdbMovieInfo info) {
+        if (info == null || info.genres == null || info.genres.isEmpty()) {
+            return FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
+        }
+
+        List<Integer> genreIds = new ArrayList<>();
+        info.genres.forEach(g -> genreIds.add(g.id));
+
+        // TMDB类型ID对照表：18剧情 / 80犯罪 / 9648悬疑 / 10749爱情 / 35喜剧 / 10751家庭 / 12冒险 / 14奇幻
+        // 优先匹配深度现实向（最适合公众号爆款）
+        if (genreIds.contains(18) && genreIds.contains(80)) {
+            return "社会讽刺、现实隐喻";
+        }
+        if (genreIds.contains(18) || genreIds.contains(9648)) {
+            return "现实扎心、人间百态";
+        }
+        if (genreIds.contains(80)) {
+            return "人性深度、善恶博弈";
+        }
+
+        // 爱情、青春成长类
+        if (genreIds.contains(10749)) {
+            return "青春成长、遗憾治愈";
+        }
+
+        // 家庭、温情治愈类
+        if (genreIds.contains(10751)) {
+            return "亲情羁绊、烟火人间";
+        }
+
+        // 轻喜剧、治愈类
+        if (genreIds.contains(35)) {
+            return "温情治愈、治愈内耗";
+        }
+
+        // 文艺感悟兜底标签池（新增小众高级风格，丰富文风）
+        List<String> fallbackTags = new ArrayList<>();
+        fallbackTags.add("人性深度、自我救赎");
+        fallbackTags.add("底层生活、人间真实");
+        fallbackTags.add("平凡人性、微光治愈");
+        fallbackTags.add("成长取舍、直面人生");
+        fallbackTags.add("人生百态、世事通透");
+        fallbackTags.add("岁月沉淀、人间清醒");
+        fallbackTags.add("市井烟火、平凡众生");
+
+        return fallbackTags.get(ThreadLocalRandom.current().nextInt(fallbackTags.size()));
+    }
+
+    /**
+     * 选片主逻辑
+     * TMDB选片成功 = 自动打标
+     * TMDB失效降级 = 从全量拓展TAG池随机标签选片
      */
     private static String pickOneMovie(List<String> used) throws Exception {
         for (int i = 0; i < PICK_MAX_RETRY; i++) {
-            currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
-            System.out.println("[LOG] 当前业务标签：" + currentFilmTag);
-            // 阶段1：优先TMDB now_playing + popular获取候选池
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 List<TmdbMovieInfo> tmdbCandidateList = tryPickFromTmdbNowPlaying();
                 if (!tmdbCandidateList.isEmpty()) {
-                    // 过滤黑名单、已经使用过的影片
                     List<TmdbMovieInfo> filterCandidates = new ArrayList<>();
                     for (TmdbMovieInfo info : tmdbCandidateList) {
                         String title = info.title != null ? info.title : info.originalTitle;
-                        if (!isBlackMovie(title) && !used.contains(title)) {
+                        boolean isHorrorOrThriller = info.genres.stream()
+                                .anyMatch(g -> g.id == GENRE_HORROR || g.id == GENRE_THRILLER);
+                        if (!isBlackMovie(title) && !used.contains(title) && !isHorrorOrThriller) {
                             filterCandidates.add(info);
                         }
                     }
+
                     if (!filterCandidates.isEmpty()) {
-                        // 交给大模型从候选池选出最合适的影片id
-                        Long selectMovieId = aiSelectBestFilmFromTmdbCandidates(filterCandidates, currentFilmTag);
+                        Long selectMovieId = aiSelectBestFilmFromTmdbCandidates(filterCandidates);
                         if (selectMovieId != null) {
-                            // 找到选中的影片
                             for (TmdbMovieInfo info : filterCandidates) {
                                 if (info.id == selectMovieId) {
                                     currentTmdbMovieInfo = info;
-                                    System.out.println("[SUCCESS]大模型从TMDB候选池选中影片：" + info.title);
+                                    currentFilmTag = autoMapFilmTagByGenres(info);
+                                    System.out.println("[SUCCESS] TMDB自动选片成功：" + info.title + "｜自动匹配标签：" + currentFilmTag);
                                     return info.title;
                                 }
                             }
                         }
-                        System.out.println("[INFO]大模型从TMDB候选池未选出合适影片，进入经典库分支");
+                        System.out.println("[INFO] TMDB候选池无合适影片，进入TAG经典库分支");
                     }
                 }
-                // 阶段2：TMDB实时池大模型选不出合格，调用大模型获取经典候选片名
+
+                // 经典库分支：从全量拓展TAG池随机标签
+                currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
+                System.out.println("[LOG] 经典库选片，随机业务标签：" + currentFilmTag);
                 List<String> classicCandidates = aiGetClassicMovieNamesByTag(currentFilmTag);
                 for (String candidateName : classicCandidates) {
-                    if (isBlackMovie(candidateName) || used.contains(candidateName)) {
-                        continue;
-                    }
-                    // AI输出片名必须回调用TMDB搜索校验真实存在
+                    if (isBlackMovie(candidateName) || used.contains(candidateName)) continue;
                     TmdbMovieInfo searchInfo = tmdbSearchMovie(candidateName);
-                    if (searchInfo == null) {
-                        continue;
-                    }
-                    // 合法性校验：简介长度、评分
+                    if (searchInfo == null) continue;
+                    boolean isHorrorOrThriller = searchInfo.genres.stream()
+                            .anyMatch(g -> g.id == GENRE_HORROR || g.id == GENRE_THRILLER);
+                    if (isHorrorOrThriller) continue;
                     if (isValidTmdbMovie(searchInfo)) {
-                        System.out.println("[SUCCESS] AI按tag产出候选，TMDB搜索校验通过：" + searchInfo.title);
                         currentTmdbMovieInfo = searchInfo;
+                        System.out.println("[SUCCESS] TAG经典库选片成功：" + searchInfo.title);
                         return searchInfo.title;
                     }
                 }
             }
-            // TMDB完全不可用降级：纯AI生成（兜底，此时没有tmdb overview，风险高）
-            System.out.println("[WARN] TMDB链路全部无可用，进入纯AI兜底选片");
+
+            // 纯AI兜底：全量TAG池随机，风格极致多样化
+            currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
+            System.out.println("[WARN] TMDB失效，AI兜底选片，标签：" + currentFilmTag);
             List<String> aiPool = aiGenerateTaggedMoviePool();
             List<String> safe = new ArrayList<>();
             for (String n : aiPool) {
-                if (!isBlackMovie(n) && !used.contains(n)) {
-                    safe.add(n);
-                }
+                if (!isBlackMovie(n) && !used.contains(n)) safe.add(n);
             }
             if (!safe.isEmpty()) {
                 currentTmdbMovieInfo = null;
@@ -268,13 +360,7 @@ public class FilmReviewMain {
         throw new Exception("多次尝试找不到未使用安全电影，请扩充候选池或清理Gist记录");
     }
 
-    /**
-     * 大模型从TMDB候选列表挑选最适合公众号深度影评的影片
-     * @param candidates 过滤后候选列表
-     * @param tag 当前业务标签
-     * @return 返回选中movieId，没有合适返回null
-     */
-    private static Long aiSelectBestFilmFromTmdbCandidates(List<TmdbMovieInfo> candidates, String tag) throws IOException {
+    private static Long aiSelectBestFilmFromTmdbCandidates(List<TmdbMovieInfo> candidates) throws IOException {
         JSONArray jsonArr = new JSONArray();
         for (TmdbMovieInfo info : candidates) {
             JSONObject item = new JSONObject();
@@ -284,51 +370,41 @@ public class FilmReviewMain {
             item.put("overview", info.overview);
             jsonArr.add(item);
         }
-        String prompt = "你是公众号影视选题编辑。业务标签：【" + tag + "】\n" +
+        String prompt = "你是公众号影视选题编辑。\n" +
                 "下面是一批候选电影JSON数组，请从中挑选**最适合写公众号深度影评**的一部。\n" +
                 "筛选标准：\n" +
-                "1.有话题度，适合挖掘人性、现实、情绪共鸣，不要纯爆米花爽片；\n" +
+                "1.有话题度，适合挖掘人性、现实、情绪共鸣、人生感悟，适配多种文风，不要纯爆米花爽片；\n" +
                 "2.简介信息充足，有足够解读空间；\n" +
-                "3.排除恐怖惊悚鬼怪题材；\n" +
+                "3.已经前置过滤恐怖惊悚鬼怪题材，候选列表无恐怖片；\n" +
                 "4.输出要求：只输出JSON，格式 {\"selectedId\":数字}。\n" +
                 "如果这批全部都不适合做公众号深度影评，则输出 {\"selectedId\":null}。\n" +
                 "候选列表：\n" + jsonArr;
         String resp = callDeepSeek(prompt);
         resp = stripCodeBlock(resp).trim();
         Matcher matcher = Pattern.compile("\\{.*\\}", Pattern.DOTALL).matcher(resp);
-        if (matcher.find()) {
-            resp = matcher.group();
-        }
+        if (matcher.find()) resp = matcher.group();
         try {
             JSONObject jo = JSON.parseObject(resp);
             Object sid = jo.get("selectedId");
-            if (sid == null) {
-                return null;
-            }
+            if (sid == null) return null;
             return jo.getLong("selectedId");
         } catch (Exception e) {
-            System.err.println("[WARN] aiSelectBestFilmFromTmdbCandidates解析失败:" + e.getMessage());
+            System.err.println("[WARN] 候选选片解析失败:" + e.getMessage());
             return null;
         }
     }
 
-    /**
-     * 返回全部合法候选集合；
-     * 集合内部排序：优先overview文本长度降序，其次评分降序，优先拿到简介更长的影片
-     */
     private static List<TmdbMovieInfo> tryPickFromTmdbNowPlaying() {
         List<Long> idList = new ArrayList<>();
-        // now_playing 最近热映
+        // 热映影片
         try {
             HttpUrl nowPlayingUrl = HttpUrl.parse(TMDB_BASE + "/movie/now_playing")
                     .newBuilder()
                     .addQueryParameter("api_key", TMDB_API_KEY)
                     .addQueryParameter("language", "zh-CN")
                     .build();
-            System.out.println("[LOG] TMDB now_playing(最近热映)接口调用 url=" + nowPlayingUrl);
             Request reqNow = new Request.Builder().url(nowPlayingUrl).get().build();
             try (Response resp = HTTP_CLIENT.newCall(reqNow).execute()) {
-                System.out.println("[LOG] TMDB now_playing status=" + resp.code());
                 if (resp.isSuccessful()) {
                     JSONObject json = JSON.parseObject(resp.body().string());
                     JSONArray results = json.getJSONArray("results");
@@ -337,9 +413,7 @@ public class FilmReviewMain {
                             JSONObject obj = (JSONObject) o;
                             long mid = obj.getLongValue("id");
                             double vote = obj.getDoubleValue("vote_average");
-                            if (vote >= TMDB_MIN_VOTE) {
-                                idList.add(mid);
-                            }
+                            if (vote >= TMDB_MIN_VOTE) idList.add(mid);
                         }
                     }
                 }
@@ -347,7 +421,8 @@ public class FilmReviewMain {
         } catch (Exception e) {
             System.err.println("now_playing请求异常:" + e.getMessage());
         }
-        // popular补充
+
+        // 热门影片补充
         if (idList.size() < 6) {
             try {
                 HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/popular")
@@ -355,10 +430,8 @@ public class FilmReviewMain {
                         .addQueryParameter("api_key", TMDB_API_KEY)
                         .addQueryParameter("language", "zh-CN")
                         .build();
-                System.out.println("[LOG] TMDB popular接口调用 url=" + url);
                 Request req = new Request.Builder().url(url).get().build();
                 try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                    System.out.println("[LOG] TMDB popular status=" + resp.code());
                     if (resp.isSuccessful()) {
                         JSONObject json = JSON.parseObject(resp.body().string());
                         JSONArray results = json.getJSONArray("results");
@@ -367,9 +440,7 @@ public class FilmReviewMain {
                                 JSONObject obj = (JSONObject) o;
                                 long mid = obj.getLongValue("id");
                                 double vote = obj.getDoubleValue("vote_average");
-                                if (vote >= TMDB_MIN_VOTE && !idList.contains(mid)) {
-                                    idList.add(mid);
-                                }
+                                if (vote >= TMDB_MIN_VOTE && !idList.contains(mid)) idList.add(mid);
                             }
                         }
                     }
@@ -378,26 +449,21 @@ public class FilmReviewMain {
                 System.err.println("popular请求异常:" + e.getMessage());
             }
         }
-        // 逐个拿详情做合法性校验，收集全部合法候选
+
         List<TmdbMovieInfo> validList = new ArrayList<>();
         for (long mid : idList) {
             TmdbMovieInfo info = tmdbGetMovieDetail(mid);
-            if (isValidTmdbMovie(info)) {
-                validList.add(info);
-            }
+            if (isValidTmdbMovie(info)) validList.add(info);
         }
-        // 核心排序：overview长度降序（优先简介长），其次评分降序
+
         validList.sort(Comparator
                 .comparingInt((TmdbMovieInfo m) -> m.overview.length()).reversed()
                 .thenComparingDouble(m -> m.voteAverage).reversed()
         );
-        System.out.printf("[LOG] TMDB热映有效候选池大小=%d，已按简介长度降序排序%n", validList.size());
+        System.out.printf("[LOG] TMDB有效候选池大小=%d%n", validList.size());
         return validList;
     }
 
-    /**
-     * 大模型：根据tag输出真实经典电影片名列表，只输出JSON数组
-     */
     private static List<String> aiGetClassicMovieNamesByTag(String tag) throws IOException {
         String prompt = "你是电影知识库。根据标签【" + tag + "】输出最多5部世界范围内真实公映过的高分经典电影中文片名。\n" +
                 "硬性约束：\n" +
@@ -406,19 +472,14 @@ public class FilmReviewMain {
                 "输出示例：[\"怦然心动\",\"肖申克的救赎\"]";
         String resp = callDeepSeek(prompt);
         resp = stripCodeBlock(resp);
-        JSONArray arr;
         try {
-            arr = JSON.parseArray(resp);
+            return JSON.parseArray(resp).toList(String.class);
         } catch (Exception e) {
-            System.err.println("[WARN] aiGetClassicMovieNamesByTag JSON解析失败，返回空集合");
+            System.err.println("[WARN] 经典影片获取失败");
             return new ArrayList<>();
         }
-        return arr.toList(String.class);
     }
 
-    /**
-     * TMDB 根据片名搜索，取第一条结果，返回完整详情；无结果返回null
-     */
     private static TmdbMovieInfo tmdbSearchMovie(String movieName) {
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/search/movie")
@@ -427,31 +488,21 @@ public class FilmReviewMain {
                     .addQueryParameter("language", "zh-CN")
                     .addQueryParameter("query", movieName)
                     .build();
-            System.out.println("[LOG] TMDB接口调用 url=" + url);
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                System.out.println("[LOG] TMDB search/movie status=" + resp.code() + ", query=" + movieName);
-                if (!resp.isSuccessful()) {
-                    return null;
-                }
+                if (!resp.isSuccessful()) return null;
                 JSONObject jo = JSON.parseObject(resp.body().string());
                 JSONArray results = jo.getJSONArray("results");
-                if (results == null || results.isEmpty()) {
-                    return null;
-                }
-                JSONObject first = results.getJSONObject(0);
-                long mid = first.getLongValue("id");
+                if (results == null || results.isEmpty()) return null;
+                long mid = results.getJSONObject(0).getLongValue("id");
                 return tmdbGetMovieDetail(mid);
             }
         } catch (Exception e) {
-            System.err.println("tmdbSearchMovie异常:" + e.getMessage());
+            System.err.println("影片搜索异常:" + e.getMessage());
             return null;
         }
     }
 
-    /**
-     * 获取TMDB/movie/{id}完整详情
-     */
     private static TmdbMovieInfo tmdbGetMovieDetail(long movieId) {
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/" + movieId)
@@ -459,17 +510,10 @@ public class FilmReviewMain {
                     .addQueryParameter("api_key", TMDB_API_KEY)
                     .addQueryParameter("language", "zh-CN")
                     .build();
-            System.out.println("[LOG] TMDB接口调用，movieId=" + movieId + ", url=" + url);
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                System.out.println("[LOG] TMDB movie detail status=" + resp.code() + ", movieId=" + movieId);
-                if (!resp.isSuccessful()) {
-                    return null;
-                }
-                String bodyStr = resp.body().string();
-                String sample = bodyStr.length() > 500 ? bodyStr.substring(0, 500) + "..." : bodyStr;
-                System.out.println("[DEBUG]TMDB响应片段 movieId=" + movieId + " : " + sample);
-                JSONObject jo = JSON.parseObject(bodyStr);
+                if (!resp.isSuccessful()) return null;
+                JSONObject jo = JSON.parseObject(resp.body().string());
                 TmdbMovieInfo info = new TmdbMovieInfo();
                 info.id = jo.getLongValue("id");
                 info.title = jo.getString("title");
@@ -491,181 +535,114 @@ public class FilmReviewMain {
                 return info;
             }
         } catch (Exception e) {
-            System.err.println("tmdbGetMovieDetail异常:" + e.getMessage());
+            System.err.println("影片详情获取异常:" + e.getMessage());
             return null;
         }
     }
 
-    /**
-     * TMDB影片合法性校验
-     */
     private static boolean isValidTmdbMovie(TmdbMovieInfo info) {
         if (info == null) return false;
         if (info.overview == null || info.overview.length() < 80) return false;
-        if ((info.title == null || info.title.isBlank()) && (info.originalTitle == null || info.originalTitle.isBlank()))
-            return false;
-        if (info.voteAverage < TMDB_MIN_VOTE) return false;
-        return true;
+        if ((info.title == null || info.title.isBlank()) && (info.originalTitle == null || info.originalTitle.isBlank())) return false;
+        return info.voteAverage >= TMDB_MIN_VOTE;
     }
 
     private static boolean isBlackMovie(String movieName) {
         if (movieName == null || movieName.isBlank()) return true;
         String cleanName = movieName.replaceAll("\\s+", "");
         for (String kw : MOVIE_BLACKLIST_KEYWORD) {
-            if (cleanName.contains(kw)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    // 判断字符串是否包含中文汉字，过滤纯英文片名
-    private static boolean hasChineseChar(String s) {
-        if (s == null) return false;
-        for (char c : s.toCharArray()) {
-            if (Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS) {
-                return true;
-            }
+            if (cleanName.contains(kw)) return true;
         }
         return false;
     }
 
     private static List<String> aiGenerateTaggedMoviePool() throws IOException {
-        int tagIndex = ThreadLocalRandom.current().nextInt(FILM_TAGS.length);
-        currentFilmTag = FILM_TAGS[tagIndex];
+        currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
         String prompt = "你是公众号影视选题编辑，请根据风格标签【" + currentFilmTag + "】，输出10部**真实上映**的高分电影中文片名。\n" +
                 "硬性约束：\n" +
                 "1.禁止编造不存在影片，片名必须准确；过滤恐怖、惊悚、鬼怪题材。\n" +
-                "2.贴合标签调性，适合公众号深度影评，大众认知度高。\n" +
+                "2.贴合标签调性，适合公众号深度影评，大众认知度高或小众优质高分影片均可。\n" +
                 "3.只输出纯净JSON数组，不要任何解释、序号。\n" +
                 "输出：[\"电影1\",\"电影2\"]";
         String resp = callDeepSeek(prompt);
         resp = stripCodeBlock(resp);
-        JSONArray arr;
         try {
-            arr = JSON.parseArray(resp);
+            return JSON.parseArray(resp).toList(String.class);
         } catch (Exception e) {
-            System.err.println("[WARN] aiGenerateTaggedMoviePool JSON解析失败，返回空集合");
+            System.err.println("[WARN] 兜底片库生成失败");
             return new ArrayList<>();
         }
-        return arr.toList(String.class);
     }
 
-    /**
-     * 生成影评：传入tmdbOverview，如果为null，代表tmdb不可用降级模式
-     */
     private static ReviewResult generateReview(String movieName, String tmdbOverview) throws Exception {
         ReviewResult fallbackResult = null;
         int emptyCount = 0;
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
-            System.out.printf("[LOG] 影评生成第%d轮重试%n", i + 1);
-            String prompt;
-            String safeOverview;
-            if (tmdbOverview == null || tmdbOverview.isBlank()) {
-                safeOverview = "";
-            } else {
-                safeOverview = tmdbOverview.replace("\"", "\\\"");
-            }
-            if (i < 2) {
-                prompt = String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
-            } else {
-                prompt = String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
-            }
+            String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace("\"", "\\\"");
+            String prompt = i < 2
+                    ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag)
+                    : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
+
             String contentRaw;
             try {
                 contentRaw = callDeepSeek(prompt);
             } catch (IOException ex) {
-                System.err.println("[ERROR] callDeepSeek IO异常：" + ex.getMessage());
                 sleepRandom(1200, 2500);
                 continue;
             }
+
             contentRaw = stripCodeBlock(contentRaw).trim();
-            // 截取真正json区间，过滤前后多余垃圾字符
             Matcher matcher = Pattern.compile("\\{.*\\}", Pattern.DOTALL).matcher(contentRaw);
-            if (matcher.find()) {
-                contentRaw = matcher.group();
-            }
-            System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(300, contentRaw.length())));
+            if (matcher.find()) contentRaw = matcher.group();
+
             if (contentRaw.isBlank()) {
                 emptyCount++;
-                System.out.printf("[WARN] AI返回为空，emptyCount=%d%n", emptyCount);
+                if (emptyCount >= 3) throw new MovieCannotHandleException("连续空返回");
                 sleepRandom(1200, 2500);
-                // 连续多次空返回，判定影片无法处理，抛出异常让上层重新选片
-                if (emptyCount >= 3) {
-                    throw new MovieCannotHandleException("连续多次返回空content，该影片模型无法输出");
-                }
                 continue;
             }
-            emptyCount = 0;
+
             if (!contentRaw.startsWith("{") || !contentRaw.endsWith("}")) {
-                System.out.println("[WARN] JSON首尾括号不完整，丢弃本轮");
                 sleepRandom(1200, 2500);
                 continue;
             }
+
             JSONObject jo;
             try {
                 jo = JSON.parseObject(contentRaw);
             } catch (Exception e) {
-                System.out.printf("JSON解析失败，重试，err=%s%n", e.getMessage());
                 sleepRandom(1200, 2500);
                 continue;
             }
-            if (jo == null) {
-                System.out.println("parseObject返回null，重试");
-                sleepRandom(1200, 2500);
-                continue;
-            }
+
             String article = jo.getString("article");
             JSONArray titleArr = jo.getJSONArray("titles");
             String centralArg = jo.getString("centralArgument");
-            // 校验仅剩的三个必填字段
             if (article == null || titleArr == null || titleArr.size() != 3 || centralArg == null) {
-                System.out.println("[WARN] JSON字段缺失，重试生成");
                 sleepRandom(1200, 2500);
                 continue;
             }
-            // 清洗文章残留指令标记
+
             article = cleanAiArticle(article);
             ReviewResult temp = new ReviewResult();
             temp.centralArgument = centralArg;
             temp.titles = titleArr.toList(String.class);
             temp.article = article;
             int len = article.length();
-            System.out.printf("[LOG]本轮稿件长度：%d，理想区间[%d,%d]，兜底下限%d%n", len, ARTICLE_IDEAL_MIN, ARTICLE_IDEAL_MAX, ARTICLE_SOFT_MIN);
-            if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_IDEAL_MAX) {
-                System.out.println("[LOG]拿到理想长度稿件，直接返回");
-                return temp;
-            }
-            if (len > ARTICLE_IDEAL_MAX) {
-                System.out.printf("[WARN]稿件超长(超过2500)，直接丢弃，当前长度：%d%n", len);
-                sleepRandom(1200, 2500);
-                continue;
-            }
-            if (len >= ARTICLE_SOFT_MIN) {
-                System.out.printf("未达到理想下限%d，当前长度：%d，作为兜底候选保存%n", ARTICLE_IDEAL_MIN, len);
-                fallbackResult = temp;
-            } else {
-                System.out.printf("稿件过短直接丢弃，当前长度：%d%n", len);
-            }
+
+            if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_IDEAL_MAX) return temp;
+            if (len >= ARTICLE_SOFT_MIN) fallbackResult = temp;
+
             sleepRandom(1200, 2500);
         }
-        if (fallbackResult != null) {
-            System.out.println("多次未拿到理想长度稿件，使用兜底稿件继续执行任务");
-            return fallbackResult;
-        }
-        throw new Exception("多次生成无法得到符合长度的影评");
+        if (fallbackResult != null) return fallbackResult;
+        throw new Exception("无合格影评稿件");
     }
 
-    /**
-     * 清洗AI输出文章：去除残留【】指令标记、多余换行
-     */
     private static String cleanAiArticle(String text) {
         if (text == null) return "";
-        // 移除【xxx】类残留指令块
-        Pattern pattern = Pattern.compile("【[^】]*】");
-        text = pattern.matcher(text).replaceAll("");
-        // 连续换行压缩
-        text = text.replaceAll("\\n{3,}", "\n\n");
+        text = text.replaceAll("【[^】]*】", "");
+        text = text.replaceAll("\\n{3,}", "\\n\\n");
         return text.trim();
     }
 
@@ -680,19 +657,15 @@ public class FilmReviewMain {
 
     private static String stripCodeBlock(String text) {
         String s = text.trim();
-        // 兼容 ```json ``` / ```markdown ``` / ``` 各种变体
         Pattern codePattern = Pattern.compile("^```[a-zA-Z0-9]*\\R(.*?)\\R```$", Pattern.DOTALL);
         Matcher matcher = codePattern.matcher(s);
-        if (matcher.matches()) {
-            s = matcher.group(1).trim();
-        }
+        if (matcher.matches()) s = matcher.group(1).trim();
         return s.trim();
     }
 
     private static String callDeepSeek(String prompt) throws IOException {
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_NET_RETRY; r++) {
-            System.out.printf("[LOG] DeepSeek接口调用，第%d次请求%n", r + 1);
             JSONObject body = new JSONObject();
             body.put("model", DEEPSEEK_MODEL);
             body.put("max_tokens", MAX_TOKENS);
@@ -703,59 +676,39 @@ public class FilmReviewMain {
             JSONArray msgs = new JSONArray();
             msgs.add(JSONObject.of("role", "user", "content", prompt));
             body.put("messages", msgs);
+
             RequestBody rb = RequestBody.create(body.toString(), MediaType.get("application/json; charset=utf-8"));
             Request req = new Request.Builder()
                     .url(DEEPSEEK_URL)
                     .addHeader("Authorization", "Bearer " + DEEPSEEK_API_KEY)
                     .post(rb)
                     .build();
+
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                System.out.println("[LOG] DeepSeek http status=" + resp.code());
                 String raw = resp.body().string();
-                System.out.println("[DEBUG]DeepSeek完整响应:" + raw);
-                if (!resp.isSuccessful()) {
-                    throw new IOException("DeepSeek调用失败 code=" + resp.code() + " body=" + raw);
-                }
+                if (!resp.isSuccessful()) throw new IOException("接口请求失败：" + resp.code());
                 JSONObject jo = JSON.parseObject(raw);
                 JSONObject choice0 = jo.getJSONArray("choices").getJSONObject(0);
                 JSONObject msgObj = choice0.getJSONObject("message");
                 String modelContent = msgObj.getString("content");
                 String reasoningContent = msgObj.getString("reasoning_content");
-                // 打印reasoning_content，用于定位v4‑flash content为空但是思考正常的问题
-                if (reasoningContent != null && !reasoningContent.isBlank()) {
-                    System.out.println("[DEBUG]DeepSeek reasoning_content长度=" + reasoningContent.length());
-                }
-                // v4‑flash 兜底：content为空，优先校验reasoning_content是否为合法JSON，否则不直接降级
-                if ((modelContent == null || modelContent.isBlank())) {
-                    if (reasoningContent != null && !reasoningContent.isBlank()) {
-                        String temp = stripCodeBlock(reasoningContent).trim();
-                        Matcher jsonMatcher = Pattern.compile("\\{.*\\}", Pattern.DOTALL).matcher(temp);
-                        if (jsonMatcher.find()) {
-                            temp = jsonMatcher.group();
-                            try {
-                                JSON.parseObject(temp);
-                                System.out.println("[WARN] content为空，降级使用reasoning_content作为业务JSON");
-                                modelContent = temp;
-                            } catch (Exception e) {
-                                System.err.println("[WARN] reasoning_content不是合法JSON，放弃降级");
-                                modelContent = "";
-                            }
-                        }
+
+                if ((modelContent == null || modelContent.isBlank()) && reasoningContent != null && !reasoningContent.isBlank()) {
+                    String temp = stripCodeBlock(reasoningContent).trim();
+                    Matcher jsonMatcher = Pattern.compile("\\{.*\\}", Pattern.DOTALL).matcher(temp);
+                    if (jsonMatcher.find()) {
+                        temp = jsonMatcher.group();
+                        JSON.parseObject(temp);
+                        modelContent = temp;
                     }
                 }
-                if (modelContent == null || modelContent.isBlank()) {
-                    System.out.println("[WARN] DeepSeek接口调用成功，但返回message.content为空字符串");
-                    return "";
-                }
-                String snippet = modelContent.substring(0, Math.min(600, modelContent.length()));
-                System.out.println("[LOG]模型返回content片段：" + snippet);
+                if (modelContent == null || modelContent.isBlank()) return "";
                 return modelContent.trim();
             } catch (IOException e) {
                 lastEx = e;
-                System.err.printf("DeepSeek网络调用异常，第%d次重试：%s%n", r + 1, e.getMessage());
             }
         }
-        throw new IOException("DeepSeek网络重试耗尽", lastEx);
+        throw new IOException("接口重试耗尽", lastEx);
     }
 
     private static List<String> loadUsedFromGist() {
@@ -766,22 +719,13 @@ public class FilmReviewMain {
                 .get()
                 .build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-            System.out.println("[LOG] Gist读取接口 status=" + resp.code());
-            if (!resp.isSuccessful()) {
-                System.err.println("读取Gist失败 " + resp.code());
-                return new ArrayList<>();
-            }
+            if (!resp.isSuccessful()) return new ArrayList<>();
             JSONObject gist = JSON.parseObject(resp.body().string());
             JSONObject files = gist.getJSONObject("files");
-            if (files == null || !files.containsKey(GIST_FILENAME)) {
-                System.out.println("Gist内目标文件不存在，初始化空已使用列表");
-                return new ArrayList<>();
-            }
-            JSONObject fileObj = files.getJSONObject(GIST_FILENAME);
-            String content = fileObj.getString("content");
+            if (files == null || !files.containsKey(GIST_FILENAME)) return new ArrayList<>();
+            String content = files.getJSONObject(GIST_FILENAME).getString("content");
             return JSON.parseArray(content).toList(String.class);
         } catch (Exception e) {
-            System.err.println("loadUsedFromGist异常：" + e.getMessage());
             return new ArrayList<>();
         }
     }
@@ -802,23 +746,16 @@ public class FilmReviewMain {
                     .patch(rb)
                     .build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                System.out.println("[LOG] Gist更新接口 status=" + resp.code());
                 if (!resp.isSuccessful()) {
                     String respBody = resp.body() != null ? resp.body().string() : "";
                     System.err.printf("更新Gist失败 code=%d, resp=%s%n", resp.code(), respBody);
-                    return;
                 }
-                System.out.println("Gist已更新，任务结束");
             }
         } catch (Exception e) {
-            System.err.println("saveUsedToGist发生异常，跳过写入已处理列表：" + e.getMessage());
-            e.printStackTrace();
+            System.err.println("Gist更新异常，跳过保存");
         }
     }
 
-    /**
-     * 飞书卡片携带完整影评正文，对齐示例《后室》卡片样式
-     */
     private static void sendFeishuCard(String movie, ReviewResult reviewResult, int articleRawLength, boolean fromTmdb) throws IOException {
         StringBuilder mdSb = new StringBuilder();
         mdSb.append("**🎬《").append(escapeLarkMd(movie)).append("》公众号影评产出**\n");
@@ -829,15 +766,13 @@ public class FilmReviewMain {
             mdSb.append("- ").append(escapeLarkMd(t)).append("\n");
         }
         mdSb.append("\n**📄完整影评正文**\n");
-        // 塞入完整影评正文，飞书md转义特殊字符
         mdSb.append(escapeLarkMd(reviewResult.article));
 
-        // 飞书卡片payload防护：如果文本过大做截断，避免11310报错
         final int MAX_CARD_CONTENT = 26000;
         String fullContent = mdSb.toString();
-        if(fullContent.length() > MAX_CARD_CONTENT){
+        if (fullContent.length() > MAX_CARD_CONTENT) {
             mdSb.setLength(0);
-            mdSb.append(fullContent,0, MAX_CARD_CONTENT);
+            mdSb.append(fullContent, 0, MAX_CARD_CONTENT);
             mdSb.append("\n\n⚠️【正文过长，卡片已截断，完整内容存在程序内存】");
         }
 
@@ -846,7 +781,6 @@ public class FilmReviewMain {
         JSONArray elements = new JSONArray();
         elements.add(JSONObject.of("tag", "div", "text", JSONObject.of("tag", "lark_md", "content", mdSb.toString())));
 
-        // note 底部备注：原始正文字数、数据源标记
         JSONObject noteEle = new JSONObject();
         noteEle.put("tag", "note");
         JSONArray noteItems = new JSONArray();
@@ -861,16 +795,12 @@ public class FilmReviewMain {
         RequestBody rb = RequestBody.create(card.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-            System.out.println("[LOG]飞书卡片推送 http status=" + resp.code());
             if (!resp.isSuccessful()) {
                 System.err.println("飞书卡片推送异常：code=" + resp.code());
             }
         }
     }
 
-    /**
-     * 飞书lark_md简单转义，避免特殊符号破坏卡片渲染
-     */
     private static String escapeLarkMd(String s) {
         if (s == null) return "";
         return s.replace("*", "\\*")
