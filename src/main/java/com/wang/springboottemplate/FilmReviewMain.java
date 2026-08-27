@@ -28,8 +28,8 @@ public class FilmReviewMain {
     private static final int ARTICLE_SOFT_MIN = 1500;
     private static final int FEISHU_CARD_SAFE_MAX = 2500;
 
-    private static final int MAX_TOKENS = 4000;
-    private static final double TEMPERATURE = 0.38;
+    private static final int MAX_TOKENS = 3200;
+    private static final double TEMPERATURE = 0.42;
 
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
@@ -128,15 +128,39 @@ public class FilmReviewMain {
         public String selfCheckReport;
     }
 
+    // 自定义异常：影片模型无法处理，需要重新选片
+    public static class MovieCannotHandleException extends Exception {
+        public MovieCannotHandleException(String msg) {
+            super(msg);
+        }
+    }
+
     public static void main(String[] args) {
         try {
             System.out.println("===== 影评生成任务启动 =====");
             checkEnv();
             List<String> usedMovies = loadUsedFromGist();
             System.out.println("已处理电影数量：" + usedMovies.size());
-            String pickedMovie = pickOneMovie(usedMovies);
-            System.out.println("选中电影：" + pickedMovie + "｜风格标签：" + currentFilmTag);
-            ReviewResult reviewResult = generateReview(pickedMovie);
+
+            ReviewResult reviewResult = null;
+            String pickedMovie = null;
+            // 在main层循环选片，遇到无法处理影片就重新选
+            for(int attempt=0;attempt<PICK_MAX_RETRY;attempt++){
+                pickedMovie = pickOneMovie(usedMovies);
+                System.out.println("选中电影：" + pickedMovie + "｜风格标签：" + currentFilmTag);
+                try{
+                    reviewResult = generateReview(pickedMovie);
+                    break;
+                }catch (MovieCannotHandleException e){
+                    System.err.printf("[WARN] 当前影片[%s]模型无法处理，重新选片，msg=%s%n",pickedMovie,e.getMessage());
+                    // 加入已使用，避免重复选中这部坏片
+                    usedMovies.add(pickedMovie);
+                }
+            }
+            if(reviewResult == null){
+                throw new Exception("多次选片仍然无法产出影评");
+            }
+
             System.out.println("中心论点：" + reviewResult.centralArgument);
             System.out.println("候选标题：" + reviewResult.titles);
             System.out.println("影评正文长度：" + reviewResult.article.length());
@@ -218,7 +242,8 @@ public class FilmReviewMain {
                             JSONObject obj = (JSONObject) o;
                             double vote = obj.getDoubleValue("vote_average");
                             String title = obj.getString("title");
-                            if (vote >= TMDB_MIN_VOTE && title != null && !title.isBlank()) {
+                            // 过滤：片名必须包含中文汉字，过滤纯英文片名
+                            if (vote >= TMDB_MIN_VOTE && title != null && !title.isBlank() && hasChineseChar(title)) {
                                 list.add(title);
                             }
                         }
@@ -248,7 +273,8 @@ public class FilmReviewMain {
                                 JSONObject obj = (JSONObject) o;
                                 double vote = obj.getDoubleValue("vote_average");
                                 String title = obj.getString("title");
-                                if (vote >= TMDB_MIN_VOTE && title != null && !title.isBlank() && !list.contains(title)) {
+                                if (vote >= TMDB_MIN_VOTE && title != null && !title.isBlank()
+                                        && hasChineseChar(title) && !list.contains(title)) {
                                     list.add(title);
                                 }
                             }
@@ -271,6 +297,16 @@ public class FilmReviewMain {
         return list;
     }
 
+    // 判断字符串是否包含中文汉字，过滤纯英文片名
+    private static boolean hasChineseChar(String s){
+        for(char c : s.toCharArray()){
+            if(Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS){
+                return true;
+            }
+        }
+        return false;
+    }
+
     private static List<String> aiGenerateTaggedMoviePool() throws IOException {
         int tagIndex = (int) (Math.random() * FILM_TAGS.length);
         currentFilmTag = FILM_TAGS[tagIndex];
@@ -288,6 +324,7 @@ public class FilmReviewMain {
 
     private static ReviewResult generateReview(String movieName) throws Exception {
         ReviewResult fallbackResult = null;
+        int emptyCount = 0;
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             System.out.printf("[LOG] 影评生成第%d轮重试%n", i + 1);
             String prompt;
@@ -308,10 +345,17 @@ public class FilmReviewMain {
             contentRaw = stripCodeBlock(contentRaw).trim();
             System.out.println("AI返回原始JSON片段：" + contentRaw.substring(0, Math.min(300, contentRaw.length())));
             if (contentRaw.isBlank()) {
-                System.out.println("[WARN] AI返回为空，休眠后重试");
+                emptyCount++;
+                System.out.printf("[WARN] AI返回为空，emptyCount=%d%n",emptyCount);
                 sleepRandom(1200, 2500);
+                // 连续多次空返回，判定影片无法处理，抛出异常让上层重新选片
+                if(emptyCount >=3){
+                    throw new MovieCannotHandleException("连续多次返回空content，该影片模型无法输出");
+                }
                 continue;
             }
+            emptyCount = 0;
+
             if (!contentRaw.startsWith("{") || !contentRaw.endsWith("}")) {
                 System.out.println("[WARN] JSON首尾括号不完整，丢弃本轮");
                 sleepRandom(1200, 2500);
@@ -420,6 +464,7 @@ public class FilmReviewMain {
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                 System.out.println("[LOG] DeepSeek http status=" + resp.code());
                 String raw = resp.body().string();
+                System.out.println("[DEBUG]DeepSeek完整响应:"+raw);
                 if (!resp.isSuccessful()) {
                     throw new IOException("DeepSeek调用失败 code=" + resp.code() + " body=" + raw);
                 }
