@@ -858,3 +858,5 @@ public class FilmReviewMain {
                 .addHeader("Authorization", "token " + GITHUB_PAT)
                 .get()
                 .build();
+    }
+}
