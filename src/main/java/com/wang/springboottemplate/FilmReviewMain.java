@@ -26,7 +26,7 @@ public class FilmReviewMain {
     private static final int ARTICLE_IDEAL_MAX = 2500;
     private static final int ARTICLE_SOFT_MIN = 1500;
     private static final int FEISHU_CARD_SAFE_MAX = 2500;
-    private static final int MAX_TOKENS = 3200;
+    private static final int MAX_TOKENS = 4096;
     private static final double TEMPERATURE = 0.42;
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
@@ -40,7 +40,6 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
-
     // ==========融合两套Skill的主Prompt模板 ==========
     // 新增：传入tmdb官方overview，强制只能基于overview写，禁止脑补剧情
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
@@ -81,7 +80,6 @@ public class FilmReviewMain {
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "正文总汉字1800‑2500；不清楚的影片细节绝不编造，只返回JSON。";
-
     // 兜底降级Prompt，重试后期，防幻觉、去AI味
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人，遵循影评写作助手+公众号爆款写作台规范。\n" +
@@ -161,13 +159,12 @@ public class FilmReviewMain {
             ReviewResult reviewResult = null;
             String pickedMovie = null;
             currentTmdbMovieInfo = null;
-
             // 在main层循环选片，遇到无法处理影片就重新选
             for (int attempt = 0; attempt < PICK_MAX_RETRY; attempt++) {
                 pickedMovie = pickOneMovie(usedMovies);
                 System.out.println("选中电影：" + pickedMovie + "｜风格标签：" + currentFilmTag);
                 try {
-                    reviewResult = generateReview(pickedMovie, currentTmdbMovieInfo.overview);
+                    reviewResult = generateReview(pickedMovie, currentTmdbMovieInfo != null ? currentTmdbMovieInfo.overview : null);
                     break;
                 } catch (MovieCannotHandleException e) {
                     System.err.printf("[WARN] 当前影片[%s]模型无法处理，重新选片，msg=%s%n", pickedMovie, e.getMessage());
@@ -212,7 +209,6 @@ public class FilmReviewMain {
         for (int i = 0; i < PICK_MAX_RETRY; i++) {
             currentFilmTag = FILM_TAGS[(int) (Math.random() * FILM_TAGS.length)];
             System.out.println("[LOG] 当前业务标签：" + currentFilmTag);
-
             // 阶段1：优先TMDB now_playing + popular，遍历找符合条件影片
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 TmdbMovieInfo tmdbInfo = tryPickFromTmdbNowPlaying();
@@ -223,7 +219,6 @@ public class FilmReviewMain {
                         return tmdbInfo.title;
                     }
                 }
-
                 // 阶段2：TMDB实时池没有合格，调用大模型获取经典候选片名
                 List<String> classicCandidates = aiGetClassicMovieNamesByTag(currentFilmTag);
                 for (String candidateName : classicCandidates) {
@@ -242,7 +237,6 @@ public class FilmReviewMain {
                     }
                 }
             }
-
             // TMDB完全不可用降级：纯AI生成（兜底，此时没有tmdb overview，风险高）
             System.out.println("[WARN] TMDB链路全部无可用，进入纯AI兜底选片");
             List<String> aiPool = aiGenerateTaggedMoviePool();
@@ -272,8 +266,10 @@ public class FilmReviewMain {
                     .addQueryParameter("api_key", TMDB_API_KEY)
                     .addQueryParameter("language", "zh-CN")
                     .build();
+            System.out.println("[LOG] TMDB接口调用 url=" + nowPlayingUrl);
             Request reqNow = new Request.Builder().url(nowPlayingUrl).get().build();
             try (Response resp = HTTP_CLIENT.newCall(reqNow).execute()) {
+                System.out.println("[LOG] TMDB now_playing status=" + resp.code());
                 if (resp.isSuccessful()) {
                     JSONObject json = JSON.parseObject(resp.body().string());
                     JSONArray results = json.getJSONArray("results");
@@ -292,7 +288,6 @@ public class FilmReviewMain {
         } catch (Exception e) {
             System.err.println("now_playing请求异常:" + e.getMessage());
         }
-
         // popular补充
         if (idList.size() < 6) {
             try {
@@ -301,8 +296,10 @@ public class FilmReviewMain {
                         .addQueryParameter("api_key", TMDB_API_KEY)
                         .addQueryParameter("language", "zh-CN")
                         .build();
+                System.out.println("[LOG] TMDB接口调用 url=" + url);
                 Request req = new Request.Builder().url(url).get().build();
                 try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                    System.out.println("[LOG] TMDB popular status=" + resp.code());
                     if (resp.isSuccessful()) {
                         JSONObject json = JSON.parseObject(resp.body().string());
                         JSONArray results = json.getJSONArray("results");
@@ -322,7 +319,6 @@ public class FilmReviewMain {
                 System.err.println("popular请求异常:" + e.getMessage());
             }
         }
-
         // 逐个拿详情做合法性校验
         for (long mid : idList) {
             TmdbMovieInfo info = tmdbGetMovieDetail(mid);
@@ -359,8 +355,10 @@ public class FilmReviewMain {
                     .addQueryParameter("language", "zh-CN")
                     .addQueryParameter("query", movieName)
                     .build();
+            System.out.println("[LOG] TMDB接口调用 url=" + url);
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                System.out.println("[LOG] TMDB search/movie status=" + resp.code() + ", query=" + movieName);
                 if (!resp.isSuccessful()) {
                     return null;
                 }
@@ -389,12 +387,18 @@ public class FilmReviewMain {
                     .addQueryParameter("api_key", TMDB_API_KEY)
                     .addQueryParameter("language", "zh-CN")
                     .build();
+            System.out.println("[LOG] TMDB接口调用，movieId=" + movieId + ", url=" + url);
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
+                System.out.println("[LOG] TMDB movie detail status=" + resp.code() + ", movieId=" + movieId);
                 if (!resp.isSuccessful()) {
                     return null;
                 }
-                JSONObject jo = JSON.parseObject(resp.body().string());
+                String bodyStr = resp.body().string();
+                String sample = bodyStr.length() > 500 ? bodyStr.substring(0, 500) + "..." : bodyStr;
+                System.out.println("[DEBUG]TMDB响应片段 movieId=" + movieId + " : " + sample);
+
+                JSONObject jo = JSON.parseObject(bodyStr);
                 TmdbMovieInfo info = new TmdbMovieInfo();
                 info.id = jo.getLongValue("id");
                 info.title = jo.getString("title");
@@ -616,8 +620,16 @@ public class FilmReviewMain {
                     throw new IOException("DeepSeek调用失败 code=" + resp.code() + " body=" + raw);
                 }
                 JSONObject jo = JSON.parseObject(raw);
-                String modelContent = jo.getJSONArray("choices").getJSONObject(0)
-                        .getJSONObject("message").getString("content");
+                JSONObject choice0 = jo.getJSONArray("choices").getJSONObject(0);
+                JSONObject msgObj = choice0.getJSONObject("message");
+                String modelContent = msgObj.getString("content");
+                String reasoningContent = msgObj.getString("reasoning_content");
+
+                // 打印reasoning_content，用于定位v4‑flash content为空但是思考正常的问题
+                if (reasoningContent != null && !reasoningContent.isBlank()) {
+                    System.out.println("[DEBUG]DeepSeek reasoning_content长度=" + reasoningContent.length());
+                }
+
                 if (modelContent == null || modelContent.isBlank()) {
                     System.out.println("[WARN] DeepSeek接口调用成功，但返回message.content为空字符串");
                     return "";
