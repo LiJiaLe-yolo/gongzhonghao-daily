@@ -31,6 +31,7 @@ public class FilmReviewMain {
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
+
     // 题材黑名单，过滤恐怖惊悚类，避免标签与影片严重错位
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
     private static final String[] FILM_TAGS = {
@@ -40,10 +41,10 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
-    // ==========融合两套Skill的主Prompt模板 ==========
-    // 新增：传入tmdb官方overview，强制只能基于overview写，禁止脑补剧情
+
+    // ========== 修改后的Prompt模板：移除封面、配图、自查报告，仅公众号爆款影评 ==========
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
-            "角色：资深公众号爆款影评撰稿人，融合公众号爆款写作台与影评写作助手两套规范。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
+            "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
             "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发、评论数据，拒绝纯剧情流水账复述。\n" +
             "\n" +
             "🔴【最高优先级·防幻觉事实约束】\n" +
@@ -63,8 +64,6 @@ public class FilmReviewMain {
             "④结尾升华，输出可摘抄金句，**结尾必须使用问句做评论区互动引导**。\n" +
             "Step5 去AI味润色：避免机械排比、模板化升华、空洞形容词；长短句交错；全文至少包含2处反问句；拒绝AI套话诸如引人深思、值得一看。\n" +
             "Step6 公众号排版约束：每段不宜过长，适配手机阅读；关键金句使用markdown加粗；少写镜头语言、剪辑配乐等专业术语。\n" +
-            "Step7 生成封面提示词（2.35:1公众号宽幅封面，电影氛围感，无文字），生成3处正文配图提示词。\n" +
-            "Step8 质量门禁自查报告，逐项核验：中心论点、事实有无编造、反问句数量、剧透控制、公众号适配、AI痕迹、合规情况。\n" +
             "\n" +
             "🚫公众号合规铁律：正文不要放链接、微信号；不要出现“点赞转发收藏”指令。\n" +
             "\n" +
@@ -72,17 +71,15 @@ public class FilmReviewMain {
             "{\n" +
             "  \"centralArgument\":\"一句话中心论点\",\n" +
             "  \"titles\":[\"标题1\",\"标题2\",\"标题3\"],\n" +
-            "  \"article\":\"完整公众号markdown正文，保留加粗语法\",\n" +
-            "  \"coverPrompt\":\"公众号封面AI绘图提示词，2.35:1宽幅\",\n" +
-            "  \"imagePrompts\":[\"配图1提示词\",\"配图2提示词\",\"配图3提示词\"],\n" +
-            "  \"selfCheckReport\":\"自查报告，逐条列出核验结果\"\n" +
+            "  \"article\":\"完整公众号markdown正文，保留加粗语法\"\n" +
             "}\n" +
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "正文总汉字1800‑2500；不清楚的影片细节绝不编造，只返回JSON。";
+
     // 兜底降级Prompt，重试后期，防幻觉、去AI味
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
-            "角色：公众号影评撰稿人，遵循影评写作助手+公众号爆款写作台规范。\n" +
+            "角色：公众号影评撰稿人。\n" +
             "🔴最高约束：所有剧情细节只能使用下面TMDB官方简介素材，严禁编造剧情、台词、人物细节；不确定的内容直接省略，禁止脑补；区分事实与主观观点。\n" +
             "TMDB官方简介素材：\n" +
             "\"%s\"\n" +
@@ -94,16 +91,12 @@ public class FilmReviewMain {
             "3.主体3‑4个解读角度，全部基于影片真实细节，落地普通人生活感受。\n" +
             "4.结尾金句+问句形式评论区引导；段落短小适配手机；去除AI模板化套话。\n" +
             "5.正文1600‑2200汉字。\n" +
-            "6.输出封面提示词、3个配图提示词、质量自查报告。\n" +
             "\n" +
             "✅输出JSON格式，禁止代码块、多余文字：\n" +
             "{\n" +
             "  \"centralArgument\":\"中心论点\",\n" +
             "  \"titles\":[\"标题1\",\"标题2\",\"标题3\"],\n" +
-            "  \"article\":\"正文markdown\",\n" +
-            "  \"coverPrompt\":\"封面提示词\",\n" +
-            "  \"imagePrompts\":[\"图1\",\"图2\",\"图3\"],\n" +
-            "  \"selfCheckReport\":\"自查报告\"\n" +
+            "  \"article\":\"正文markdown\"\n" +
             "}\n" +
             "\n" +
             "电影《%s》，风格标签【%s】。只输出JSON。";
@@ -123,9 +116,6 @@ public class FilmReviewMain {
         public String centralArgument;
         public List<String> titles;
         public String article;
-        public String coverPrompt;
-        public List<String> imagePrompts;
-        public String selfCheckReport;
     }
 
     // 自定义异常：影片模型无法处理，需要重新选片
@@ -397,7 +387,6 @@ public class FilmReviewMain {
                 String bodyStr = resp.body().string();
                 String sample = bodyStr.length() > 500 ? bodyStr.substring(0, 500) + "..." : bodyStr;
                 System.out.println("[DEBUG]TMDB响应片段 movieId=" + movieId + " : " + sample);
-
                 JSONObject jo = JSON.parseObject(bodyStr);
                 TmdbMovieInfo info = new TmdbMovieInfo();
                 info.id = jo.getLongValue("id");
@@ -529,11 +518,8 @@ public class FilmReviewMain {
             String article = jo.getString("article");
             JSONArray titleArr = jo.getJSONArray("titles");
             String centralArg = jo.getString("centralArgument");
-            String coverPro = jo.getString("coverPrompt");
-            JSONArray imgArr = jo.getJSONArray("imagePrompts");
-            String checkReport = jo.getString("selfCheckReport");
-            if (article == null || titleArr == null || titleArr.size() != 3
-                    || centralArg == null || coverPro == null || imgArr == null || checkReport == null) {
+            // 校验仅剩的三个必填字段
+            if (article == null || titleArr == null || titleArr.size() != 3 || centralArg == null) {
                 System.out.println("[WARN] JSON字段缺失，重试生成");
                 sleepRandom(1200, 2500);
                 continue;
@@ -542,9 +528,7 @@ public class FilmReviewMain {
             temp.centralArgument = centralArg;
             temp.titles = titleArr.toList(String.class);
             temp.article = article;
-            temp.coverPrompt = coverPro;
-            temp.imagePrompts = imgArr.toList(String.class);
-            temp.selfCheckReport = checkReport;
+
             int len = article.length();
             System.out.printf("[LOG]本轮稿件长度：%d，理想区间[%d,%d]，兜底下限%d%n", len, ARTICLE_IDEAL_MIN, ARTICLE_IDEAL_MAX, ARTICLE_SOFT_MIN);
             if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_IDEAL_MAX) {
@@ -624,12 +608,10 @@ public class FilmReviewMain {
                 JSONObject msgObj = choice0.getJSONObject("message");
                 String modelContent = msgObj.getString("content");
                 String reasoningContent = msgObj.getString("reasoning_content");
-
                 // 打印reasoning_content，用于定位v4‑flash content为空但是思考正常的问题
                 if (reasoningContent != null && !reasoningContent.isBlank()) {
                     System.out.println("[DEBUG]DeepSeek reasoning_content长度=" + reasoningContent.length());
                 }
-
                 if (modelContent == null || modelContent.isBlank()) {
                     System.out.println("[WARN] DeepSeek接口调用成功，但返回message.content为空字符串");
                     return "";
@@ -712,14 +694,9 @@ public class FilmReviewMain {
         for (String t : reviewResult.titles) {
             mdSb.append("- ").append(t).append("\n");
         }
-        mdSb.append("\n**🖼️封面提示词：**\n").append(reviewResult.coverPrompt).append("\n\n");
-        mdSb.append("**📷配图提示词：**\n");
-        for (int i = 0; i < reviewResult.imagePrompts.size(); i++) {
-            mdSb.append(i + 1).append(". ").append(reviewResult.imagePrompts.get(i)).append("\n");
-        }
-        mdSb.append("\n**✅质量自查报告：**\n").append(reviewResult.selfCheckReport).append("\n\n");
-        mdSb.append("**📄完整影评正文**\n");
+        mdSb.append("\n**📄完整影评正文**\n");
         mdSb.append(reviewResult.article);
+
         String mdContent = mdSb.toString();
         if (mdContent.length() > FEISHU_CARD_SAFE_MAX) {
             int pos = FEISHU_CARD_SAFE_MAX - 150;
