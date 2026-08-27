@@ -912,4 +912,17 @@ public class FilmReviewMain {
         JSONObject payload = JSONObject.of("config", JSONObject.of("wide_screen_mode", true), "elements", elements);
         card.put("card", payload);
         RequestBody rb = RequestBody.create(card.toString(), MediaType.get("application/json; charset=utf-8"));
-        Request req = new Request.Builder().url(FE
+        Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
+        try(Response resp = HTTP_CLIENT.newCall(req).execute()){
+            if(!resp.isSuccessful()){
+                System.err.printf("[sendFeishuCard]飞书推送失败 code=%d%n", resp.code());
+            }
+        }
+    }
+
+    /**
+     * 飞书markdown特殊字符转义
+     */
+    private static String escapeLarkMd(String input){
+        if(input == null) return "";
+        return input.replace("
