@@ -59,6 +59,7 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
+    // ================= Prompt 模板 (已强化加粗要求) =================
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
             "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发、评论数据，拒绝纯剧情流水账复述。\n" +
@@ -79,7 +80,7 @@ public class FilmReviewMain {
             "③主体解读（占全文60%%篇幅），拆分3‑4个解读角度；每一个观点绑定影片真实细节；结尾落地普通人现实感悟；拿不准细节直接舍弃。长文在40%%‑60%%位置设置一处阅读钩子反问。\n" +
             "④结尾升华，输出可摘抄金句，结尾必须使用问句做评论区互动引导。\n" +
             "Step5 去AI味润色：避免机械排比、模板化升华、空洞形容词；长短句交错；全文至少包含2处反问句；拒绝AI套话诸如引人深思、值得一看。\n" +
-            "Step6 公众号排版约束：每段不宜过长，适配手机阅读；关键金句使用markdown加粗；少写镜头语言、剪辑配乐等专业术语。\n" +
+            "Step6 公众号排版约束：每段不宜过长，适配手机阅读；**必须将中心论点、核心金句、强烈情绪共鸣的句子使用 Markdown 的 **加粗** 语法进行高亮展示**；少写镜头语言、剪辑配乐等专业术语。\n" +
             "\n" +
             "🚫公众号合规铁律：正文不要放链接、微信号；不要出现“点赞转发收藏”指令。\n" +
             "\n" +
@@ -105,7 +106,8 @@ public class FilmReviewMain {
             "2.开篇简短抓情绪；剧情简介最大150字，只写真实关键片段。\n" +
             "3.主体3‑4个解读角度，全部基于影片真实细节，落地普通人生活感受。\n" +
             "4.结尾金句+问句形式引导；段落短小适配手机；去除AI模板化套话。\n" +
-            "5.【硬性强制】正文汉字严格1800‑2500，字数不够直接作废。\n" +
+            "5.**必须将核心金句、情绪共鸣点使用 Markdown 的 **加粗** 语法高亮**。\n" +
+            "6.【硬性强制】正文汉字严格1800‑2500，字数不够直接作废。\n" +
             "\n" +
             "✅输出JSON格式，禁止代码块、多余文字：\n" +
             "{\n" +
@@ -130,7 +132,7 @@ public class FilmReviewMain {
             "Step3 开篇情绪钩子切入。剧情简述严格压缩，只写简介内存在的事实。\n" +
             "Step4 主体部分大量做现实引申、人性思辨、普通人生活对照，拆分3‑4个解读角度；文中至少2处反问，中段设置一处读者互动反问。\n" +
             "Step5 结尾金句，必须问句收尾引导评论。\n" +
-            "Step6 手机阅读短段落，关键语句markdown加粗，剔除AI套话。\n" +
+            "Step6 手机阅读短段落，**必须将中心论点、核心金句、强烈情绪共鸣的句子使用 Markdown 的 **加粗** 语法进行高亮展示**，剔除AI套话。\n" +
             "\n" +
             "🚫禁止链接、导流话术。\n" +
             "【硬性强制】正文严格1800‑2500字符，必须达到该区间。允许现实感悟充分延展，但绝对不能编造电影里不存在的情节。\n" +
@@ -161,9 +163,7 @@ public class FilmReviewMain {
     }
 
     public static class MovieCannotHandleException extends Exception {
-        public MovieCannotHandleException(String msg) {
-            super(msg);
-        }
+        public MovieCannotHandleException(String msg) { super(msg); }
     }
 
     public static class TmdbMovieInfo {
@@ -287,7 +287,7 @@ public class FilmReviewMain {
             System.out.println("\n👉 【阶段一】尝试从 TMDB 获取近期热门/上映电影，交由 AI 优选...");
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 List<TmdbMovieInfo> tmdbCandidateList = tryPickFromTmdbNowPlaying();
-                System.out.printf("   📊 TMDB 初始拉取候选数量: %d\n", tmdbCandidateList.size());
+                System.out.printf("   📊 TMDB 初始拉取并校验后的候选数量: %d\n", tmdbCandidateList.size());
                 
                 if (!tmdbCandidateList.isEmpty()) {
                     List<TmdbMovieInfo> filterCandidates = new ArrayList<>();
@@ -297,11 +297,11 @@ public class FilmReviewMain {
                         if (!isBlackMovie(title) && !used.contains(title) && !isHorrorOrThriller) {
                             filterCandidates.add(info);
                         } else {
-                            System.out.printf("   🚫 过滤掉电影: %s (原因: %s)\n", title, 
+                            System.out.printf("   🚫 业务过滤: %s (原因: %s)\n", title, 
                                 isBlackMovie(title) ? "黑名单/已使用" : (isHorrorOrThriller ? "恐怖/惊悚题材" : "未知"));
                         }
                     }
-                    System.out.printf("   ✅ TMDB 过滤后有效候选池大小: %d\n", filterCandidates.size());
+                    System.out.printf("   ✅ 业务过滤后有效候选池大小: %d\n", filterCandidates.size());
                     
                     if (!filterCandidates.isEmpty()) {
                         System.out.println("   🤖 正在调用 AI 从候选池中挑选最适合公众号深度影评的电影...");
@@ -409,7 +409,10 @@ public class FilmReviewMain {
                 "如果这批全部都不适合做公众号深度影评，则输出 {\"selectedId\":null}。\n" +
                 "候选列表：\n" + jsonArr;
 
+        System.out.println("   📤 [AI选片] 发送的候选JSON: " + jsonArr.toJSONString());
         String resp = callDeepSeek(prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
+        System.out.println("   📥 [AI选片] 大模型原始返回: " + resp);
+        
         resp = stripCodeBlock(resp).trim();
         
         int start = resp.indexOf('{');
@@ -429,7 +432,7 @@ public class FilmReviewMain {
 
     private static List<TmdbMovieInfo> tryPickFromTmdbNowPlaying() {
         List<Long> idList = new ArrayList<>();
-        System.out.println("   🌐 [TMDB] 请求 now_playing 热映列表");
+        System.out.println("\n   🌐 [TMDB] 开始请求 now_playing 热映列表...");
         try {
             HttpUrl nowPlayingUrl = HttpUrl.parse(TMDB_BASE + "/movie/now_playing")
                     .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
@@ -439,21 +442,32 @@ public class FilmReviewMain {
                     JSONObject json = JSON.parseObject(resp.body().string());
                     JSONArray results = json.getJSONArray("results");
                     if (results != null && !results.isEmpty()) {
+                        System.out.printf("   📊 [TMDB] now_playing 接口返回总数量: %d\n", results.size());
                         for (Object o : results) {
                             JSONObject obj = (JSONObject) o;
                             long mid = obj.getLongValue("id");
+                            String title = obj.getString("title");
                             double vote = obj.getDoubleValue("vote_average");
-                            if (vote >= TMDB_MIN_VOTE) idList.add(mid);
+                            if (vote >= TMDB_MIN_VOTE) {
+                                idList.add(mid);
+                                System.out.printf("      ✅ 保留: ID=%-6d | 评分=%.1f | 片名=%s\n", mid, vote, title);
+                            } else {
+                                System.out.printf("      ❌ 过滤: ID=%-6d | 评分=%.1f | 片名=%s (原因: 评分低于%.1f)\n", mid, vote, title, TMDB_MIN_VOTE);
+                            }
                         }
+                    } else {
+                        System.out.println("   ⚠️ [TMDB] now_playing 接口返回结果为空");
                     }
+                } else {
+                    System.err.printf("   ❌ [TMDB] now_playing 请求失败, HTTP Code: %d\n", resp.code());
                 }
             }
         } catch (Exception e) {
-            System.err.println("   ❌ now_playing请求异常:" + e.getMessage());
+            System.err.println("   ❌ [TMDB] now_playing 请求异常: " + e.getMessage());
         }
 
         if (idList.size() < 6) {
-            System.out.println("   🌐 [TMDB] now_playing数量不足，补充popular热门列表");
+            System.out.printf("\n   🌐 [TMDB] now_playing 保留数量(%d)不足6部，开始补充 popular 热门列表...\n", idList.size());
             try {
                 HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/popular")
                         .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
@@ -463,27 +477,50 @@ public class FilmReviewMain {
                         JSONObject json = JSON.parseObject(resp.body().string());
                         JSONArray results = json.getJSONArray("results");
                         if (results != null && !results.isEmpty()) {
+                            System.out.printf("   📊 [TMDB] popular 接口返回总数量: %d\n", results.size());
                             for (Object o : results) {
                                 JSONObject obj = (JSONObject) o;
                                 long mid = obj.getLongValue("id");
+                                String title = obj.getString("title");
                                 double vote = obj.getDoubleValue("vote_average");
-                                if (vote >= TMDB_MIN_VOTE && !idList.contains(mid)) idList.add(mid);
+                                if (vote >= TMDB_MIN_VOTE && !idList.contains(mid)) {
+                                    idList.add(mid);
+                                    System.out.printf("      ✅ 补充: ID=%-6d | 评分=%.1f | 片名=%s\n", mid, vote, title);
+                                } else if (vote < TMDB_MIN_VOTE) {
+                                    System.out.printf("      ❌ 过滤: ID=%-6d | 评分=%.1f | 片名=%s (原因: 评分低于%.1f)\n", mid, vote, title, TMDB_MIN_VOTE);
+                                }
                             }
                         }
+                    } else {
+                        System.err.printf("   ❌ [TMDB] popular 请求失败, HTTP Code: %d\n", resp.code());
                     }
                 }
             } catch (Exception e) {
-                System.err.println("   ❌ popular请求异常:" + e.getMessage());
+                System.err.println("   ❌ [TMDB] popular 请求异常: " + e.getMessage());
             }
         }
 
+        System.out.printf("\n   📝 [TMDB] 准备拉取详情的 ID 列表 (共%d个): %s\n", idList.size(), idList);
         List<TmdbMovieInfo> validList = new ArrayList<>();
         for (long mid : idList) {
             TmdbMovieInfo info = tmdbGetMovieDetail(mid);
-            if (isValidTmdbMovie(info)) validList.add(info);
+            if (isValidTmdbMovie(info)) {
+                validList.add(info);
+                System.out.printf("      ✅ 详情校验通过: %s (简介长度: %d)\n", info.title, info.overview.length());
+            } else {
+                System.out.printf("      ❌ 详情校验失败: ID=%d (原因: 简介过短或评分不足)\n", mid);
+            }
         }
         validList.sort(Comparator.comparingInt((TmdbMovieInfo m) -> m.overview.length()).reversed()
                 .thenComparingDouble(m -> m.voteAverage).reversed());
+        
+        if (!validList.isEmpty()) {
+            System.out.println("   🏆 [TMDB] 排序后的 Top 3 候选影片:");
+            for (int i = 0; i < Math.min(3, validList.size()); i++) {
+                TmdbMovieInfo m = validList.get(i);
+                System.out.printf("      %d. %s (评分: %.1f, 简介长度: %d)\n", i + 1, m.title, m.voteAverage, m.overview.length());
+            }
+        }
         return validList;
     }
 
@@ -509,15 +546,22 @@ public class FilmReviewMain {
                     .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").addQueryParameter("query", movieName).build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                if (!resp.isSuccessful()) return null;
+                if (!resp.isSuccessful()) {
+                    System.err.printf("      ❌ [TMDB搜索] HTTP请求失败, Code: %d\n", resp.code());
+                    return null;
+                }
                 JSONObject jo = JSON.parseObject(resp.body().string());
                 JSONArray results = jo.getJSONArray("results");
-                if (results == null || results.isEmpty()) return null;
+                if (results == null || results.isEmpty()) {
+                    System.out.printf("      ⚠️ [TMDB搜索] 未找到相关影片: %s\n", movieName);
+                    return null;
+                }
                 long mid = results.getJSONObject(0).getLongValue("id");
+                System.out.printf("      🔍 [TMDB搜索] 命中影片 ID: %d\n", mid);
                 return tmdbGetMovieDetail(mid);
             }
         } catch (Exception e) {
-            System.err.println("   ❌ 影片搜索异常:" + e.getMessage());
+            System.err.println("      ❌ 影片搜索异常:" + e.getMessage());
             return null;
         }
     }
@@ -528,7 +572,10 @@ public class FilmReviewMain {
                     .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-                if (!resp.isSuccessful()) return null;
+                if (!resp.isSuccessful()) {
+                    System.err.printf("      ❌ [TMDB详情] HTTP请求失败, ID: %d, Code: %d\n", movieId, resp.code());
+                    return null;
+                }
                 JSONObject jo = JSON.parseObject(resp.body().string());
                 TmdbMovieInfo info = new TmdbMovieInfo();
                 info.id = jo.getLongValue("id");
@@ -551,7 +598,7 @@ public class FilmReviewMain {
                 return info;
             }
         } catch (Exception e) {
-            System.err.println("   ❌ 影片详情获取异常:" + e.getMessage());
+            System.err.println("      ❌ 影片详情获取异常:" + e.getMessage());
             return null;
         }
     }
@@ -601,18 +648,20 @@ public class FilmReviewMain {
             String prompt;
             int currentMaxToken;
             double currentTemp;
+            String modeName;
 
             if (weakOverview) {
                 prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
                 currentMaxToken = MAX_TOKENS_EXPAND;
                 currentTemp = TEMPERATURE_EXPAND;
-                System.out.println("   🚀 使用【扩写加强模式】");
+                modeName = "扩写加强模式";
             } else {
                 prompt = i < 2 ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag) : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
                 currentMaxToken = MAX_TOKENS_NORMAL;
                 currentTemp = TEMPERATURE_NORMAL;
-                System.out.println("   📝 使用【普通生成模式】");
+                modeName = i < 2 ? "普通生成模式" : "降级兜底模式";
             }
+            System.out.printf("   📝 使用 Prompt 模式: %s\n", modeName);
 
             String contentRaw;
             try {
@@ -886,11 +935,11 @@ public class FilmReviewMain {
 
     /**
      * 飞书markdown特殊字符转义
+     * 注意：不转义 * 号，以保留 Markdown 的 **加粗** 语法在飞书卡片中正常渲染
      */
     private static String escapeLarkMd(String input) {
         if (input == null) return "";
-        return input.replace("*", "\\*")
-                .replace("[", "\\[")
+        return input.replace("[", "\\[")
                 .replace("]", "\\]")
                 .replace("`", "\\`")
                 .replace(">", "\\>");
