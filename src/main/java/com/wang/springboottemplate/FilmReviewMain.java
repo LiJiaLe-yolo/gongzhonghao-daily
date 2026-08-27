@@ -10,6 +10,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 public class FilmReviewMain {
     private static final String DEEPSEEK_API_KEY = System.getenv("DEEPSEEK_API_KEY");
@@ -21,6 +22,7 @@ public class FilmReviewMain {
     private static final String GIST_ID = System.getenv("GIST_ID");
     private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
+
     private static final double TMDB_MIN_VOTE = 6.8;
     private static final int ARTICLE_IDEAL_MIN = 1800;
     private static final int ARTICLE_IDEAL_MAX = 2500;
@@ -31,6 +33,7 @@ public class FilmReviewMain {
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
+
     // 题材黑名单，过滤恐怖惊悚类，避免标签与影片严重错位
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
     private static final String[] FILM_TAGS = {
@@ -40,6 +43,7 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
+
     // ========== 修改后的Prompt模板：移除封面、配图、自查报告，仅公众号爆款影评 ==========
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
@@ -74,6 +78,7 @@ public class FilmReviewMain {
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "正文总汉字1800‑2500；不清楚的影片细节绝不编造，只返回JSON。";
+
     // 兜底降级Prompt，重试后期，防幻觉、去AI味
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人。\n" +
@@ -97,12 +102,14 @@ public class FilmReviewMain {
             "}\n" +
             "\n" +
             "电影《%s》，风格标签【%s】。只输出JSON。";
+
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(150, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
+
     private static String currentFilmTag = "";
     // 保存当前选中影片的TMDB完整详情
     private static TmdbMovieInfo currentTmdbMovieInfo = null;
@@ -165,7 +172,7 @@ public class FilmReviewMain {
             System.out.println("中心论点：" + reviewResult.centralArgument);
             System.out.println("候选标题：" + reviewResult.titles);
             System.out.println("影评正文原始长度：" + articleRawLength);
-            sendFeishuCard(pickedMovie, reviewResult, articleRawLength);
+            sendFeishuCard(pickedMovie, reviewResult, articleRawLength, currentTmdbMovieInfo != null);
             System.out.println("飞书卡片推送完成");
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
@@ -312,6 +319,10 @@ public class FilmReviewMain {
         for (long mid : idList) {
             TmdbMovieInfo info = tmdbGetMovieDetail(mid);
             if (isValidTmdbMovie(info)) {
+                // 中文title为空，降级originalTitle
+                if ((info.title == null || info.title.isBlank()) && info.originalTitle != null) {
+                    info.title = info.originalTitle;
+                }
                 return info;
             }
         }
@@ -426,9 +437,10 @@ public class FilmReviewMain {
     }
 
     private static boolean isBlackMovie(String movieName) {
-        if (movieName == null) return true;
+        if (movieName == null || movieName.isBlank()) return true;
+        String cleanName = movieName.replaceAll("\\s+", "");
         for (String kw : MOVIE_BLACKLIST_KEYWORD) {
-            if (movieName.contains(kw)) {
+            if (cleanName.contains(kw)) {
                 return true;
             }
         }
@@ -437,6 +449,7 @@ public class FilmReviewMain {
 
     // 判断字符串是否包含中文汉字，过滤纯英文片名
     private static boolean hasChineseChar(String s) {
+        if (s == null) return false;
         for (char c : s.toCharArray()) {
             if (Character.UnicodeBlock.of(c) == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS) {
                 return true;
@@ -523,6 +536,9 @@ public class FilmReviewMain {
                 sleepRandom(1200, 2500);
                 continue;
             }
+            // 清洗文章残留指令标记
+            article = cleanAiArticle(article);
+
             ReviewResult temp = new ReviewResult();
             temp.centralArgument = centralArg;
             temp.titles = titleArr.toList(String.class);
@@ -551,6 +567,19 @@ public class FilmReviewMain {
             return fallbackResult;
         }
         throw new Exception("多次生成无法得到符合长度的影评");
+    }
+
+    /**
+     * 清洗AI输出文章：去除残留【】指令标记、多余换行
+     */
+    private static String cleanAiArticle(String text) {
+        if (text == null) return "";
+        // 移除【xxx】类残留指令块
+        Pattern pattern = Pattern.compile("【[^】]*】");
+        text = pattern.matcher(text).replaceAll("");
+        // 连续换行压缩
+        text = text.replaceAll("\\n{3,}", "\n\n");
+        return text.trim();
     }
 
     private static void sleepRandom(int minMs, int maxMs) {
@@ -609,6 +638,11 @@ public class FilmReviewMain {
                 // 打印reasoning_content，用于定位v4‑flash content为空但是思考正常的问题
                 if (reasoningContent != null && !reasoningContent.isBlank()) {
                     System.out.println("[DEBUG]DeepSeek reasoning_content长度=" + reasoningContent.length());
+                }
+                // v4‑flash 兜底：content为空，取reasoning_content
+                if ((modelContent == null || modelContent.isBlank()) && reasoningContent != null && !reasoningContent.isBlank()) {
+                    System.out.println("[WARN] content为空，降级使用reasoning_content");
+                    modelContent = reasoningContent;
                 }
                 if (modelContent == null || modelContent.isBlank()) {
                     System.out.println("[WARN] DeepSeek接口调用成功，但返回message.content为空字符串");
@@ -684,9 +718,9 @@ public class FilmReviewMain {
     }
 
     /**
-     * 改造：传入原始正文长度，飞书卡片note块输出正文字数
+     * 改造：传入原始正文长度，飞书卡片note块输出正文字数；增加是否来自TMDB标记
      */
-    private static void sendFeishuCard(String movie, ReviewResult reviewResult, int articleRawLength) throws IOException {
+    private static void sendFeishuCard(String movie, ReviewResult reviewResult, int articleRawLength, boolean fromTmdb) throws IOException {
         StringBuilder mdSb = new StringBuilder();
         mdSb.append("**🎬《").append(movie).append("》公众号影评产出**\n");
         mdSb.append("**影片风格：").append(currentFilmTag).append("**\n\n");
@@ -711,28 +745,24 @@ public class FilmReviewMain {
             mdContent += "\n\n……（内容已截断，注意务必人工核验影片事实后再发布）";
             isTruncated = true;
         }
-
         JSONObject card = new JSONObject();
         card.put("msg_type", "interactive");
-
         JSONArray elements = new JSONArray();
         // 主体markdown内容
         elements.add(JSONObject.of("tag", "div", "text", JSONObject.of("tag", "lark_md", "content", mdContent)));
-
-        // note 底部备注：原始正文字数，是否截断标记
+        // note 底部备注：原始正文字数，是否截断标记、是否TMDB数据源
         JSONObject noteEle = new JSONObject();
         noteEle.put("tag", "note");
         JSONArray noteItems = new JSONArray();
         noteItems.add(JSONObject.of("tag", "plain_text", "content", "✅影评原始正文总字符数：" + articleRawLength + " 字符"));
+        noteItems.add(JSONObject.of("tag", "plain_text", "content", "｜数据源：" + (fromTmdb ? "TMDB官方简介" : "纯AI兜底(风险高)")));
         if(isTruncated){
             noteItems.add(JSONObject.of("tag", "plain_text", "content","｜⚠️飞书卡片内容已截断"));
         }
         noteEle.put("elements", noteItems);
         elements.add(noteEle);
-
         JSONObject payload = JSONObject.of("config", JSONObject.of("wide_screen_mode", true), "elements", elements);
         card.put("card", payload);
-
         RequestBody rb = RequestBody.create(card.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
