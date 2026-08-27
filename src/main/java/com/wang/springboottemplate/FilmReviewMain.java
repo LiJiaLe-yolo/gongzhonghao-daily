@@ -1,12 +1,11 @@
 package com.wang.springboottemplate;
-
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import okhttp3.*;
-
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
@@ -28,12 +27,12 @@ public class FilmReviewMain {
     private static final int ARTICLE_IDEAL_MAX = 2500;
     private static final int ARTICLE_SOFT_MIN = 1500;
     private static final int FEISHU_CARD_SAFE_MAX = 2500;
-    private static final int MAX_TOKENS = 4096;
-    private static final double TEMPERATURE = 0.42;
+    // ========= 参数调整：调大max_tokens，降低temperature，提升输出确定性、支持更长文本 =========
+    private static final int MAX_TOKENS = 8192;
+    private static final double TEMPERATURE = 0.12;
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
-
     // 题材黑名单，过滤恐怖惊悚类，避免标签与影片严重错位
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
     private static final String[] FILM_TAGS = {
@@ -43,7 +42,6 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
-
     // ========== 修改后的Prompt模板：移除封面、配图、自查报告，仅公众号爆款影评 ==========
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
@@ -78,7 +76,6 @@ public class FilmReviewMain {
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "正文总汉字1800‑2500；不清楚的影片细节绝不编造，只返回JSON。";
-
     // 兜底降级Prompt，重试后期，防幻觉、去AI味
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人。\n" +
@@ -102,31 +99,26 @@ public class FilmReviewMain {
             "}\n" +
             "\n" +
             "电影《%s》，风格标签【%s】。只输出JSON。";
-
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(150, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
-
     private static String currentFilmTag = "";
     // 保存当前选中影片的TMDB完整详情
     private static TmdbMovieInfo currentTmdbMovieInfo = null;
-
     public static class ReviewResult {
         public String centralArgument;
         public List<String> titles;
         public String article;
     }
-
     // 自定义异常：影片模型无法处理，需要重新选片
     public static class MovieCannotHandleException extends Exception {
         public MovieCannotHandleException(String msg) {
             super(msg);
         }
     }
-
     // TMDB影片信息DTO
     public static class TmdbMovieInfo {
         public long id;
@@ -136,12 +128,10 @@ public class FilmReviewMain {
         public double voteAverage;
         public List<TmdbGenre> genres;
     }
-
     public static class TmdbGenre {
         public int id;
         public String name;
     }
-
     public static void main(String[] args) {
         try {
             System.out.println("===== 影评生成任务启动 =====");
@@ -182,7 +172,6 @@ public class FilmReviewMain {
             e.printStackTrace();
         }
     }
-
     private static void checkEnv() throws Exception {
         if (DEEPSEEK_API_KEY == null || DEEPSEEK_API_KEY.isBlank()) {
             throw new Exception("环境变量 DEEPSEEK_API_KEY 未配置");
@@ -194,7 +183,6 @@ public class FilmReviewMain {
             throw new Exception("GIST_ID / GITHUB_PAT 未配置");
         }
     }
-
     /**
      * 选片主逻辑：优先TMDB now_playing最近热映；无合格则从tag交给大模型拿经典片名，再回校TMDB搜索；TMDB完全失效走纯AI兜底
      * 返回电影中文片名，同时把完整tmdb信息写入静态变量currentTmdbMovieInfo
@@ -205,16 +193,19 @@ public class FilmReviewMain {
             System.out.println("[LOG] 当前业务标签：" + currentFilmTag);
             // 阶段1：优先TMDB now_playing热映池
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
-                TmdbMovieInfo tmdbInfo = tryPickFromTmdbNowPlaying();
-                if (tmdbInfo != null) {
-                    // 中文title为空，降级originalTitle
-                    if ((tmdbInfo.title == null || tmdbInfo.title.isBlank()) && tmdbInfo.originalTitle != null) {
-                        tmdbInfo.title = tmdbInfo.originalTitle;
-                    }
-                    if (!isBlackMovie(tmdbInfo.title) && !used.contains(tmdbInfo.title)) {
-                        System.out.println("[SUCCESS] 从TMDB最近热映池命中影片：" + tmdbInfo.title);
-                        currentTmdbMovieInfo = tmdbInfo;
-                        return tmdbInfo.title;
+                // === 修改：拿到全部合法候选集合，不再拿第一个就返回 ===
+                List<TmdbMovieInfo> tmdbCandidateList = tryPickFromTmdbNowPlaying();
+                if (!tmdbCandidateList.isEmpty()) {
+                    // 遍历候选池，过滤黑名单、已使用，取第一个合格
+                    for (TmdbMovieInfo tmdbInfo : tmdbCandidateList) {
+                        if ((tmdbInfo.title == null || tmdbInfo.title.isBlank()) && tmdbInfo.originalTitle != null) {
+                            tmdbInfo.title = tmdbInfo.originalTitle;
+                        }
+                        if (!isBlackMovie(tmdbInfo.title) && !used.contains(tmdbInfo.title)) {
+                            System.out.println("[SUCCESS] 从TMDB最近热映池命中影片：" + tmdbInfo.title + "｜简介长度:"+tmdbInfo.overview.length());
+                            currentTmdbMovieInfo = tmdbInfo;
+                            return tmdbInfo.title;
+                        }
                     }
                 }
                 System.out.println("[INFO] TMDB热映池无合格影片，按tag调用大模型获取经典候选");
@@ -255,9 +246,10 @@ public class FilmReviewMain {
     }
 
     /**
-     * 从now_playing + popular中遍历，返回第一个合法影片，无则返回null
+     * 修改：返回全部合法候选集合，不再直接返回单个；
+     * 集合内部排序：优先overview文本长度降序，其次评分降序，优先拿到简介更长的影片
      */
-    private static TmdbMovieInfo tryPickFromTmdbNowPlaying() {
+    private static List<TmdbMovieInfo> tryPickFromTmdbNowPlaying() {
         List<Long> idList = new ArrayList<>();
         // now_playing 最近热映
         try {
@@ -319,14 +311,21 @@ public class FilmReviewMain {
                 System.err.println("popular请求异常:" + e.getMessage());
             }
         }
-        // 逐个拿详情做合法性校验
+        // 逐个拿详情做合法性校验，收集全部合法候选
+        List<TmdbMovieInfo> validList = new ArrayList<>();
         for (long mid : idList) {
             TmdbMovieInfo info = tmdbGetMovieDetail(mid);
             if (isValidTmdbMovie(info)) {
-                return info;
+                validList.add(info);
             }
         }
-        return null;
+        // 核心排序：overview长度降序（优先简介长），其次评分降序
+        validList.sort(Comparator
+                .comparingInt((TmdbMovieInfo m) -> m.overview.length()).reversed()
+                .thenComparingDouble(m -> m.voteAverage).reversed()
+        );
+        System.out.printf("[LOG] TMDB热映有效候选池大小=%d，已按简介长度降序排序%n", validList.size());
+        return validList;
     }
 
     /**
@@ -349,7 +348,6 @@ public class FilmReviewMain {
         }
         return arr.toList(String.class);
     }
-
     /**
      * TMDB 根据片名搜索，取第一条结果，返回完整详情；无结果返回null
      */
@@ -382,7 +380,6 @@ public class FilmReviewMain {
             return null;
         }
     }
-
     /**
      * 获取TMDB/movie/{id}完整详情
      */
@@ -429,7 +426,6 @@ public class FilmReviewMain {
             return null;
         }
     }
-
     /**
      * TMDB影片合法性校验
      */
@@ -441,7 +437,6 @@ public class FilmReviewMain {
         if (info.voteAverage < TMDB_MIN_VOTE) return false;
         return true;
     }
-
     private static boolean isBlackMovie(String movieName) {
         if (movieName == null || movieName.isBlank()) return true;
         String cleanName = movieName.replaceAll("\\s+", "");
@@ -452,7 +447,6 @@ public class FilmReviewMain {
         }
         return false;
     }
-
     // 判断字符串是否包含中文汉字，过滤纯英文片名
     private static boolean hasChineseChar(String s) {
         if (s == null) return false;
@@ -463,7 +457,6 @@ public class FilmReviewMain {
         }
         return false;
     }
-
     private static List<String> aiGenerateTaggedMoviePool() throws IOException {
         int tagIndex = ThreadLocalRandom.current().nextInt(FILM_TAGS.length);
         currentFilmTag = FILM_TAGS[tagIndex];
@@ -484,7 +477,6 @@ public class FilmReviewMain {
         }
         return arr.toList(String.class);
     }
-
     /**
      * 生成影评：传入tmdbOverview，如果为null，代表tmdb不可用降级模式
      */
@@ -589,7 +581,6 @@ public class FilmReviewMain {
         }
         throw new Exception("多次生成无法得到符合长度的影评");
     }
-
     /**
      * 清洗AI输出文章：去除残留【】指令标记、多余换行
      */
@@ -602,7 +593,6 @@ public class FilmReviewMain {
         text = text.replaceAll("\\n{3,}", "\n\n");
         return text.trim();
     }
-
     private static void sleepRandom(int minMs, int maxMs) {
         try {
             int ms = ThreadLocalRandom.current().nextInt(minMs, maxMs + 1);
@@ -611,7 +601,6 @@ public class FilmReviewMain {
             Thread.currentThread().interrupt();
         }
     }
-
     private static String stripCodeBlock(String text) {
         String s = text.trim();
         // 兼容 ```json ``` / ```markdown ``` / ``` 各种变体
@@ -622,7 +611,6 @@ public class FilmReviewMain {
         }
         return s.trim();
     }
-
     private static String callDeepSeek(String prompt) throws IOException {
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_NET_RETRY; r++) {
@@ -664,13 +652,13 @@ public class FilmReviewMain {
                     if (reasoningContent != null && !reasoningContent.isBlank()) {
                         String temp = stripCodeBlock(reasoningContent).trim();
                         Matcher jsonMatcher = Pattern.compile("\\{.*\\}", Pattern.DOTALL).matcher(temp);
-                        if(jsonMatcher.find()){
+                        if (jsonMatcher.find()) {
                             temp = jsonMatcher.group();
-                            try{
+                            try {
                                 JSON.parseObject(temp);
                                 System.out.println("[WARN] content为空，降级使用reasoning_content作为业务JSON");
                                 modelContent = temp;
-                            }catch (Exception e){
+                            } catch (Exception e) {
                                 System.err.println("[WARN] reasoning_content不是合法JSON，放弃降级");
                                 modelContent = "";
                             }
@@ -691,7 +679,6 @@ public class FilmReviewMain {
         }
         throw new IOException("DeepSeek网络重试耗尽", lastEx);
     }
-
     private static List<String> loadUsedFromGist() {
         String url = "https://api.github.com/gists/" + GIST_ID;
         Request req = new Request.Builder()
@@ -719,7 +706,6 @@ public class FilmReviewMain {
             return new ArrayList<>();
         }
     }
-
     private static void saveUsedToGist(List<String> list) {
         try {
             JSONObject fileItem = new JSONObject();
@@ -749,7 +735,6 @@ public class FilmReviewMain {
             e.printStackTrace();
         }
     }
-
     /**
      * 改造：传入原始正文长度，飞书卡片note块输出正文字数；增加是否来自TMDB标记
      */
@@ -789,8 +774,8 @@ public class FilmReviewMain {
         JSONArray noteItems = new JSONArray();
         noteItems.add(JSONObject.of("tag", "plain_text", "content", "✅影评原始正文总字符数：" + articleRawLength + " 字符"));
         noteItems.add(JSONObject.of("tag", "plain_text", "content", "｜数据源：" + (fromTmdb ? "TMDB官方简介" : "纯AI兜底(风险高)")));
-        if(isTruncated){
-            noteItems.add(JSONObject.of("tag", "plain_text", "content","｜⚠️飞书卡片内容已截断"));
+        if (isTruncated) {
+            noteItems.add(JSONObject.of("tag", "plain_text", "content", "｜⚠️飞书卡片内容已截断"));
         }
         noteEle.put("elements", noteItems);
         elements.add(noteEle);
@@ -805,12 +790,11 @@ public class FilmReviewMain {
             }
         }
     }
-
     /**
      * 飞书lark_md简单转义，避免特殊符号破坏卡片渲染
      */
-    private static String escapeLarkMd(String s){
-        if(s == null) return "";
+    private static String escapeLarkMd(String s) {
+        if (s == null) return "";
         return s.replace("*", "\\*")
                 .replace("_", "\\_")
                 .replace("[", "\\[")
