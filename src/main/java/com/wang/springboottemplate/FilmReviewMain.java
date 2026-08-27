@@ -31,7 +31,6 @@ public class FilmReviewMain {
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
-
     // 题材黑名单，过滤恐怖惊悚类，避免标签与影片严重错位
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
     private static final String[] FILM_TAGS = {
@@ -41,7 +40,6 @@ public class FilmReviewMain {
             "社会讽刺、现实隐喻",
             "温情治愈、治愈内耗"
     };
-
     // ========== 修改后的Prompt模板：移除封面、配图、自查报告，仅公众号爆款影评 ==========
     private static final String MAIN_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
@@ -76,7 +74,6 @@ public class FilmReviewMain {
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
             "正文总汉字1800‑2500；不清楚的影片细节绝不编造，只返回JSON。";
-
     // 兜底降级Prompt，重试后期，防幻觉、去AI味
     private static final String FALLBACK_REVIEW_PROMPT_TPL = "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人。\n" +
@@ -100,14 +97,12 @@ public class FilmReviewMain {
             "}\n" +
             "\n" +
             "电影《%s》，风格标签【%s】。只输出JSON。";
-
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
             .readTimeout(150, TimeUnit.SECONDS)
             .writeTimeout(30, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
             .build();
-
     private static String currentFilmTag = "";
     // 保存当前选中影片的TMDB完整详情
     private static TmdbMovieInfo currentTmdbMovieInfo = null;
@@ -166,10 +161,11 @@ public class FilmReviewMain {
             if (reviewResult == null) {
                 throw new Exception("多次选片仍然无法产出影评");
             }
+            int articleRawLength = reviewResult.article.length();
             System.out.println("中心论点：" + reviewResult.centralArgument);
             System.out.println("候选标题：" + reviewResult.titles);
-            System.out.println("影评正文长度：" + reviewResult.article.length());
-            sendFeishuCard(pickedMovie, reviewResult);
+            System.out.println("影评正文原始长度：" + articleRawLength);
+            sendFeishuCard(pickedMovie, reviewResult, articleRawLength);
             System.out.println("飞书卡片推送完成");
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
@@ -192,23 +188,25 @@ public class FilmReviewMain {
     }
 
     /**
-     * 选片主逻辑：优先TMDB now_playing；无合格则调用大模型拿经典片名，再回校TMDB搜索；不维护本地硬编码ID池
+     * 选片主逻辑：优先TMDB now_playing最近热映；无合格则从tag交给大模型拿经典片名，再回校TMDB搜索；TMDB完全失效走纯AI兜底
      * 返回电影中文片名，同时把完整tmdb信息写入静态变量currentTmdbMovieInfo
      */
     private static String pickOneMovie(List<String> used) throws Exception {
         for (int i = 0; i < PICK_MAX_RETRY; i++) {
             currentFilmTag = FILM_TAGS[(int) (Math.random() * FILM_TAGS.length)];
             System.out.println("[LOG] 当前业务标签：" + currentFilmTag);
-            // 阶段1：优先TMDB now_playing + popular，遍历找符合条件影片
+            // 阶段1：优先TMDB now_playing热映池
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 TmdbMovieInfo tmdbInfo = tryPickFromTmdbNowPlaying();
                 if (tmdbInfo != null) {
                     // 校验黑名单、未使用
                     if (!isBlackMovie(tmdbInfo.title) && !used.contains(tmdbInfo.title)) {
+                        System.out.println("[SUCCESS] 从TMDB最近热映池命中影片：" + tmdbInfo.title);
                         currentTmdbMovieInfo = tmdbInfo;
                         return tmdbInfo.title;
                     }
                 }
+                System.out.println("[INFO] TMDB热映池无合格影片，按tag调用大模型获取经典候选");
                 // 阶段2：TMDB实时池没有合格，调用大模型获取经典候选片名
                 List<String> classicCandidates = aiGetClassicMovieNamesByTag(currentFilmTag);
                 for (String candidateName : classicCandidates) {
@@ -222,6 +220,7 @@ public class FilmReviewMain {
                     }
                     // 合法性校验：简介长度、评分
                     if (isValidTmdbMovie(searchInfo)) {
+                        System.out.println("[SUCCESS] AI按tag产出候选，TMDB搜索校验通过：" + searchInfo.title);
                         currentTmdbMovieInfo = searchInfo;
                         return searchInfo.title;
                     }
@@ -249,14 +248,14 @@ public class FilmReviewMain {
      */
     private static TmdbMovieInfo tryPickFromTmdbNowPlaying() {
         List<Long> idList = new ArrayList<>();
-        // now_playing
+        // now_playing 最近热映
         try {
             HttpUrl nowPlayingUrl = HttpUrl.parse(TMDB_BASE + "/movie/now_playing")
                     .newBuilder()
                     .addQueryParameter("api_key", TMDB_API_KEY)
                     .addQueryParameter("language", "zh-CN")
                     .build();
-            System.out.println("[LOG] TMDB接口调用 url=" + nowPlayingUrl);
+            System.out.println("[LOG] TMDB now_playing(最近热映)接口调用 url=" + nowPlayingUrl);
             Request reqNow = new Request.Builder().url(nowPlayingUrl).get().build();
             try (Response resp = HTTP_CLIENT.newCall(reqNow).execute()) {
                 System.out.println("[LOG] TMDB now_playing status=" + resp.code());
@@ -286,7 +285,7 @@ public class FilmReviewMain {
                         .addQueryParameter("api_key", TMDB_API_KEY)
                         .addQueryParameter("language", "zh-CN")
                         .build();
-                System.out.println("[LOG] TMDB接口调用 url=" + url);
+                System.out.println("[LOG] TMDB popular接口调用 url=" + url);
                 Request req = new Request.Builder().url(url).get().build();
                 try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                     System.out.println("[LOG] TMDB popular status=" + resp.code());
@@ -528,7 +527,6 @@ public class FilmReviewMain {
             temp.centralArgument = centralArg;
             temp.titles = titleArr.toList(String.class);
             temp.article = article;
-
             int len = article.length();
             System.out.printf("[LOG]本轮稿件长度：%d，理想区间[%d,%d]，兜底下限%d%n", len, ARTICLE_IDEAL_MIN, ARTICLE_IDEAL_MAX, ARTICLE_SOFT_MIN);
             if (len >= ARTICLE_IDEAL_MIN && len <= ARTICLE_IDEAL_MAX) {
@@ -685,7 +683,10 @@ public class FilmReviewMain {
         }
     }
 
-    private static void sendFeishuCard(String movie, ReviewResult reviewResult) throws IOException {
+    /**
+     * 改造：传入原始正文长度，飞书卡片note块输出正文字数
+     */
+    private static void sendFeishuCard(String movie, ReviewResult reviewResult, int articleRawLength) throws IOException {
         StringBuilder mdSb = new StringBuilder();
         mdSb.append("**🎬《").append(movie).append("》公众号影评产出**\n");
         mdSb.append("**影片风格：").append(currentFilmTag).append("**\n\n");
@@ -696,8 +697,8 @@ public class FilmReviewMain {
         }
         mdSb.append("\n**📄完整影评正文**\n");
         mdSb.append(reviewResult.article);
-
         String mdContent = mdSb.toString();
+        boolean isTruncated = false;
         if (mdContent.length() > FEISHU_CARD_SAFE_MAX) {
             int pos = FEISHU_CARD_SAFE_MAX - 150;
             String temp = mdContent.substring(0, pos);
@@ -708,16 +709,30 @@ public class FilmReviewMain {
                 mdContent = temp;
             }
             mdContent += "\n\n……（内容已截断，注意务必人工核验影片事实后再发布）";
+            isTruncated = true;
         }
+
         JSONObject card = new JSONObject();
         card.put("msg_type", "interactive");
-        JSONObject ele = new JSONObject();
-        ele.put("tag", "div");
-        ele.put("text", JSONObject.of("tag", "lark_md", "content", mdContent));
+
         JSONArray elements = new JSONArray();
-        elements.add(ele);
+        // 主体markdown内容
+        elements.add(JSONObject.of("tag", "div", "text", JSONObject.of("tag", "lark_md", "content", mdContent)));
+
+        // note 底部备注：原始正文字数，是否截断标记
+        JSONObject noteEle = new JSONObject();
+        noteEle.put("tag", "note");
+        JSONArray noteItems = new JSONArray();
+        noteItems.add(JSONObject.of("tag", "plain_text", "content", "✅影评原始正文总字符数：" + articleRawLength + " 字符"));
+        if(isTruncated){
+            noteItems.add(JSONObject.of("tag", "plain_text", "content","｜⚠️飞书卡片内容已截断"));
+        }
+        noteEle.put("elements", noteItems);
+        elements.add(noteEle);
+
         JSONObject payload = JSONObject.of("config", JSONObject.of("wide_screen_mode", true), "elements", elements);
         card.put("card", payload);
+
         RequestBody rb = RequestBody.create(card.toString(), MediaType.get("application/json; charset=utf-8"));
         Request req = new Request.Builder().url(FEISHU_WEBHOOK).post(rb).build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
