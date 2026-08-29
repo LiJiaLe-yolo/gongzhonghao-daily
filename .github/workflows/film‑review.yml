@@ -3,8 +3,8 @@ name: 每日影评生成任务
 on:
   workflow_dispatch:
   schedule:
-    # 北京时间早上04:00 = UTC 20:00
-    - cron: '0 18 * * *'
+    # 北京时间早上01:00 = UTC 17:00
+    - cron: '0 17 * * *'
 
 jobs:
   run-film-review:
