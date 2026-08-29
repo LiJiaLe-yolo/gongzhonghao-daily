@@ -15,39 +15,36 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class FilmReviewMain {
-
     private static final String DEEPSEEK_API_KEY = System.getenv("DEEPSEEK_API_KEY");
     private static final String FEISHU_WEBHOOK = System.getenv("FEISHU_WEBHOOK");
     private static final String TMDB_API_KEY = System.getenv("TMDB_API_KEY");
-    
-    // ⚠️ 修复了之前代码中错误的 Markdown 链接格式 [url](url)
+
     private static final String DEEPSEEK_URL = "https://api.deepseek.com/v1/chat/completions";
     private static final String DEEPSEEK_MODEL = "deepseek-v4-flash";
     private static final String TMDB_BASE = "https://api.themoviedb.org/3";
-    
+
     private static final String GIST_ID = System.getenv("GIST_ID");
     private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
-
+    
     private static final double TMDB_MIN_VOTE = 6.8;
     private static final int ARTICLE_TARGET_MIN = 1800;
     private static final int ARTICLE_TARGET_MAX = 2500;
     private static final int OVERVIEW_WEAK_THRESHOLD = 250;
-
+    
     private static final int MAX_TOKENS_NORMAL = 8192;
     private static final int MAX_TOKENS_EXPAND = 12288;
     private static final double TEMPERATURE_NORMAL = 0.12;
     private static final double TEMPERATURE_EXPAND = 0.28;
-
+    
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
-
+    
     private static final int GENRE_HORROR = 27;
     private static final int GENRE_THRILLER = 53;
-
+    
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
-
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态", "社会讽刺、现实隐喻", "底层生活、人间真实", "时代缩影、众生皆苦",
             "市井烟火、平凡众生", "阶层现实、生活真相", "人性深度、善恶博弈", "自我救赎、与己和解",
@@ -60,15 +57,17 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
-    // ================= Prompt 模板 =================
+    // ================= Prompt 模板 (已强化视角伪装，抹除"简介"字眼) =================
     private static final String MAIN_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
             "写作底层逻辑：电影只是载体，输出人性、现实痛点、情绪共鸣，提升文章收藏、转发数据，拒绝纯剧情流水账复述。\n" +
             "\n" +
-            "🔴【最高优先级·防幻觉事实约束】\n" +
-            "所有剧情、人物、细节只能使用下面给出的TMDB官方简介素材，严禁编造剧情、人物、台词、名场面、细节伏笔。不知道、拿不准的细节直接舍弃，禁止脑补杜撰。\n" +
-            "TMDB官方简介素材：\n" +
+            "🔴【最高优先级·防幻觉与视角伪装铁律】\n" +
+            "1. 所有剧情、人物、细节只能基于下方提供的【影片核心事实参考】。\n" +
+            "2. ⚠️视角伪装：你必须完全代入“刚看完这部电影的资深影迷”视角！将下方参考信息内化为你的“观影记忆”。\n" +
+            "3. 🚫绝对禁止在正文中出现“简介”、“简介里”、“简介中”、“剧情简介”、“官方设定”、“素材”等暴露数据来源的词汇！不要说“从简介可以看出”，要说“影片中有一幕...”。\n" +
+            "影片核心事实参考：\n" +
             "\"%s\"\n" +
             "严格区分：影片客观事实 / 个人主观观点，不要把主观感受伪装成客观定论。禁止虚构导演创作意图。\n" +
             "\n" +
@@ -99,14 +98,17 @@ public class FilmReviewMain {
     private static final String FALLBACK_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守】\n" +
             "角色：公众号影评撰稿人。\n" +
-            "🔴最高约束：所有剧情细节只能使用下面TMDB官方简介素材，严禁编造剧情、台词、人物细节；不确定的内容直接省略，禁止脑补；区分事实与主观观点。\n" +
-            "TMDB官方简介素材：\n" +
+            "🔴最高约束与视角伪装：\n" +
+            "1. 所有剧情细节只能基于下方【影片核心事实参考】，严禁编造。\n" +
+            "2. ⚠️你必须代入“看过全片的影迷”视角，将参考信息内化为观影记忆。\n" +
+            "3. 🚫绝对禁止在正文中出现“简介”、“简介里”、“简介中”、“剧情简介”等暴露数据来源的词汇！\n" +
+            "影片核心事实参考：\n" +
             "\"%s\"\n" +
             "写作逻辑：少复述剧情，多输出人性感悟现实共鸣；全文至少2个反问；结尾使用反问句引发思考。\n" +
             "\n" +
             "写作规范：\n" +
             "1.输出一句中心论点；输出3条公众号钩子标题，禁止观后感、浅析类标题。\n" +
-            "2.开篇简短抓情绪；剧情简介最大150字，只写真实关键片段。\n" +
+            "2.开篇简短抓情绪；剧情铺垫最大150字，只写真实关键片段。\n" +
             "3.主体3‑4个解读角度，全部基于影片真实细节，落地普通人生活感受。\n" +
             "4.结尾金句+一句有力反问引发读者内心思考，自然收束；段落短小适配手机；去除AI模板化套话。\n" +
             "5.必须将核心金句、情绪共鸣点使用 Markdown 的 **加粗** 语法高亮。\n" +
@@ -125,16 +127,19 @@ public class FilmReviewMain {
     private static final String EXPAND_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。\n" +
-            "⚠️重要边界：电影本身剧情、人物、事件，严格仅使用下方TMDB简介，绝不编造影片内部细节。\n" +
+            "⚠️重要边界与视角伪装：\n" +
+            "1. 电影本身剧情、人物、事件，严格仅使用下方【影片核心事实参考】，绝不编造影片内部细节。\n" +
+            "2. 你必须代入“看过全片的资深影迷”视角，将参考信息内化为观影记忆。\n" +
+            "3. 🚫绝对禁止在正文中出现“简介”、“简介里”、“简介中”、“剧情简介”等暴露数据来源的词汇！\n" +
             "允许放大：现实社会观察、普通人生活类比、人性思辨、人生感悟、同类生活处境对照，靠现实感悟把篇幅撑满，禁止杜撰电影情节。\n" +
             "\n" +
-            "TMDB官方简介素材：\n" +
+            "影片核心事实参考：\n" +
             "\"%s\"\n" +
             "\n" +
             "📋写作流程：\n" +
             "Step1 提炼一句有力中心论点。\n" +
             "Step2 生成3组公众号钩子标题，拒绝观后感、浅析。\n" +
-            "Step3 开篇情绪钩子切入。剧情简述严格压缩，只写简介内存在的事实。\n" +
+            "Step3 开篇情绪钩子切入。剧情简述严格压缩，只写参考事实中存在的情节。\n" +
             "Step4 主体部分大量做现实引申、人性思辨、普通人生活对照，拆分3‑4个解读角度；文中至少2处反问，中段设置一处读者内心反问。\n" +
             "Step5 结尾金句；结尾使用一句有力的反问句引发读者内心思考，自然收束全文。\n" +
             "Step6 手机阅读短段落，必须将中心论点、核心金句、强烈情绪共鸣的句子使用 Markdown 的 **加粗** 语法进行高亮展示，剔除AI套话。\n" +
@@ -191,7 +196,7 @@ public class FilmReviewMain {
             System.out.println("🚀 影评生成任务启动");
             System.out.println("=".repeat(60));
             checkEnv();
-
+            
             List<String> usedMovies = loadUsedFromGist();
             System.out.println("📊 已处理电影数量：" + usedMovies.size());
 
@@ -202,10 +207,10 @@ public class FilmReviewMain {
             for (int attempt = 0; attempt < PICK_MAX_RETRY; attempt++) {
                 currentTmdbMovieInfo = null;
                 currentFilmTag = "";
-
+                
                 pickedMovie = pickOneMovie(usedMovies);
                 System.out.printf("\n🎯 最终选中电影：《%s》｜ 风格标签：【%s】\n", pickedMovie, currentFilmTag);
-
+                
                 if (currentTmdbMovieInfo != null) {
                     System.out.printf("📖 [TMDB影片信息] id=%d, 评分=%.2f, 简介长度=%d\n",
                             currentTmdbMovieInfo.id, currentTmdbMovieInfo.voteAverage,
@@ -237,11 +242,11 @@ public class FilmReviewMain {
             System.out.println("📏 影评正文原始长度：" + articleRawLength + " 字符");
 
             sendFeishuCard(pickedMovie, reviewResult, articleRawLength);
-
+            
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
             System.out.println("\n🎉 任务正常结束，Gist已保存已处理影片列表！");
-
+            
         } catch (Exception e) {
             System.err.println("\n💥 任务异常：" + e.getMessage());
             e.printStackTrace();
@@ -354,20 +359,13 @@ public class FilmReviewMain {
         throw new Exception("多次选片尝试均失败，请扩充候选池或清理Gist记录");
     }
 
-    /**
-     * 从 TMDB 拉取 trending(热搜) + now_playing + popular 合并候选
-     */
     private static List<TmdbMovieInfo> fetchTmdbCandidates() {
         List<Long> idList = new ArrayList<>();
         
-        // 1. 优先拉取本周热搜/趋势 (Trending)
         System.out.println("  🔥 [TMDB] 拉取本周热搜/趋势电影 (trending/week)...");
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/trending/movie/week")
-                    .newBuilder()
-                    .addQueryParameter("api_key", TMDB_API_KEY)
-                    .addQueryParameter("language", "zh-CN")
-                    .build();
+                    .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                 if (resp.isSuccessful()) {
@@ -382,18 +380,12 @@ public class FilmReviewMain {
                     }
                 }
             }
-        } catch (Exception e) {
-            System.err.println("  ❌ trending 异常: " + e.getMessage());
-        }
+        } catch (Exception e) { System.err.println("  ❌ trending 异常: " + e.getMessage()); }
 
-        // 2. now_playing 补充
         System.out.println("  🎬 [TMDB] 拉取正在热映 (now_playing)...");
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/now_playing")
-                    .newBuilder()
-                    .addQueryParameter("api_key", TMDB_API_KEY)
-                    .addQueryParameter("language", "zh-CN")
-                    .build();
+                    .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                 if (resp.isSuccessful()) {
@@ -409,19 +401,13 @@ public class FilmReviewMain {
                     }
                 }
             }
-        } catch (Exception e) {
-            System.err.println("  ❌ now_playing 异常: " + e.getMessage());
-        }
+        } catch (Exception e) { System.err.println("  ❌ now_playing 异常: " + e.getMessage()); }
 
-        // 3. popular 补充
         if (idList.size() < 6) {
             System.out.println("  🌟 [TMDB] 候选不足，补充热门榜单 (popular)...");
             try {
                 HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/popular")
-                        .newBuilder()
-                        .addQueryParameter("api_key", TMDB_API_KEY)
-                        .addQueryParameter("language", "zh-CN")
-                        .build();
+                        .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
                 Request req = new Request.Builder().url(url).get().build();
                 try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                     if (resp.isSuccessful()) {
@@ -437,27 +423,19 @@ public class FilmReviewMain {
                         }
                     }
                 }
-            } catch (Exception e) {
-                System.err.println("  ❌ popular 异常: " + e.getMessage());
-            }
+            } catch (Exception e) { System.err.println("  ❌ popular 异常: " + e.getMessage()); }
         }
 
         System.out.printf("  📝 TMDB 待查详情 ID (%d个)\n", idList.size());
-        
         List<TmdbMovieInfo> validList = new ArrayList<>();
         for (long mid : idList) {
             TmdbMovieInfo info = tmdbGetMovieDetail(mid);
-            if (isValidTmdbMovie(info)) {
-                validList.add(info);
-            }
+            if (isValidTmdbMovie(info)) validList.add(info);
         }
         validList.sort(Comparator.comparingInt((TmdbMovieInfo m) -> m.overview.length()).reversed());
         return validList;
     }
 
-    /**
-     * 大模型从候选列表中挑选最适合公众号影评的电影 (结合热点情绪)
-     */
     private static Long aiSelectBestFilm(List<TmdbMovieInfo> candidates) throws IOException {
         JSONArray jsonArr = new JSONArray();
         for (TmdbMovieInfo info : candidates) {
@@ -469,12 +447,11 @@ public class FilmReviewMain {
             jsonArr.add(item);
         }
 
-        // ⚠️ Prompt 升级：强制结合近期社会热点/热搜情绪
         String prompt = "你是资深公众号影视主编，深谙网络热点与大众情绪。\n" +
                 "下面是一批候选电影，请结合【近期社会热点话题/热搜情绪】（如：职场内耗、亲密关系困境、生存压力、女性觉醒、原生家庭、反内卷等），从中挑选最适合写公众号深度爆款影评的一部。\n" +
                 "筛选标准：\n" +
                 "1. 极具话题度，能蹭上近期网络热点情绪，容易引发读者转发和共鸣，拒绝自嗨和纯爆米花爽片；\n" +
-                "2. 简介信息充足，有足够的人性/现实解读空间；\n" +
+                "2. 剧情信息充足，有足够的人性/现实解读空间；\n" +
                 "3. 候选列表已过滤恐怖惊悚题材；\n" +
                 "4. 只输出JSON，格式 {\"selectedId\":数字}。\n" +
                 "如果全部都不具备热点话题潜力，输出 {\"selectedId\":null}。\n" +
@@ -518,7 +495,6 @@ public class FilmReviewMain {
     }
 
     private static List<String> aiGetClassicMovieNamesByTag(String tag) throws IOException {
-        // ⚠️ Prompt 升级：要求推荐能切中当下痛点、自带热搜属性的经典片
         String prompt = "你是资深公众号影视主编，深谙网络热点与大众情绪。\n" +
                 "请结合【近期容易引发全网共鸣的社会热点/热搜情绪】（如：反内卷、搞钱焦虑、中年危机、女性独立、原生家庭创伤等），并根据风格标签【" + tag + "】，输出最多5部世界范围内真实公映过的高分经典电影中文片名。\n" +
                 "硬性约束：\n" +
@@ -554,15 +530,10 @@ public class FilmReviewMain {
         }
     }
 
-    // ==================== TMDB 接口 ====================
     private static TmdbMovieInfo tmdbSearchMovie(String movieName) {
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/search/movie")
-                    .newBuilder()
-                    .addQueryParameter("api_key", TMDB_API_KEY)
-                    .addQueryParameter("language", "zh-CN")
-                    .addQueryParameter("query", movieName)
-                    .build();
+                    .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").addQueryParameter("query", movieName).build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                 if (!resp.isSuccessful()) return null;
@@ -580,10 +551,7 @@ public class FilmReviewMain {
     private static TmdbMovieInfo tmdbGetMovieDetail(long movieId) {
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/movie/" + movieId)
-                    .newBuilder()
-                    .addQueryParameter("api_key", TMDB_API_KEY)
-                    .addQueryParameter("language", "zh-CN")
-                    .build();
+                    .newBuilder().addQueryParameter("api_key", TMDB_API_KEY).addQueryParameter("language", "zh-CN").build();
             Request req = new Request.Builder().url(url).get().build();
             try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
                 if (!resp.isSuccessful()) return null;
@@ -630,7 +598,6 @@ public class FilmReviewMain {
         return false;
     }
 
-    // ==================== 影评生成 ====================
     private static ReviewResult generateReview(String movieName, String tmdbOverview) throws Exception {
         int emptyCount = 0;
         String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace("“", "\"").replace("”", "\"");
@@ -740,7 +707,6 @@ public class FilmReviewMain {
         return finalRes;
     }
 
-    // ==================== 飞书卡片 ====================
     private static void sendFeishuCard(String movieName, ReviewResult result, int articleLength) {
         try {
             JSONObject card = new JSONObject();
@@ -818,9 +784,7 @@ public class FilmReviewMain {
         return divider;
     }
 
-    // ==================== Gist 读写 ====================
     private static List<String> loadUsedFromGist() {
-        // ⚠️ 修复 URL 格式
         String url = "https://api.github.com/gists/" + GIST_ID;
         Request req = new Request.Builder()
                 .url(url)
@@ -848,7 +812,6 @@ public class FilmReviewMain {
     }
 
     private static void saveUsedToGist(List<String> usedMovies) throws IOException {
-        // ⚠️ 修复 URL 格式
         String url = "https://api.github.com/gists/" + GIST_ID;
         JSONObject fileObj = new JSONObject();
         fileObj.put("content", new JSONArray(usedMovies).toJSONString());
@@ -873,7 +836,6 @@ public class FilmReviewMain {
         }
     }
 
-    // ==================== DeepSeek 调用 ====================
     private static String callDeepSeek(String prompt, int maxTokens, double temperature) throws IOException {
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_NET_RETRY; r++) {
@@ -927,7 +889,6 @@ public class FilmReviewMain {
         throw new IOException("DeepSeek重试耗尽", lastEx);
     }
 
-    // ==================== 工具方法 ====================
     private static String removeInteractionCTA(String article) {
         if (article == null || article.isBlank()) return article;
         String[] ctaPhrases = {
@@ -950,6 +911,15 @@ public class FilmReviewMain {
         if (text == null) return "";
         text = text.replaceAll("【.*?】", "");
         text = text.replaceAll("\\n{3,}", "\n\n");
+        
+        // 🌟 核心修复：强制替换掉暴露AI视角的“简介”相关词汇，保证语句通顺
+        text = text.replaceAll("从简介(里|中|来看|可以看出|得知)", "在影片中");
+        text = text.replaceAll("简介(里|中|提到|显示|写道)", "电影中");
+        text = text.replaceAll("根据简介", "在故事里");
+        text = text.replaceAll("剧情简介", "电影情节");
+        text = text.replaceAll("官方简介", "影片");
+        text = text.replaceAll("正如简介", "正如影片");
+        
         return text.trim();
     }
 
