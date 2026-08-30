@@ -3,6 +3,7 @@ package com.wang.springboottemplate;
 import com.alibaba.fastjson2.JSON;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
+import com.alibaba.fastjson2.JSONReader;
 import okhttp3.*;
 
 import java.io.IOException;
@@ -26,24 +27,24 @@ public class FilmReviewMain {
     private static final String GIST_ID = System.getenv("GIST_ID");
     private static final String GITHUB_PAT = System.getenv("GH_PAT_GIST");
     private static final String GIST_FILENAME = "film_used_movies.json";
-    
+
     private static final double TMDB_MIN_VOTE = 6.8;
     private static final int ARTICLE_TARGET_MIN = 1800;
     private static final int ARTICLE_TARGET_MAX = 2500;
     private static final int OVERVIEW_WEAK_THRESHOLD = 250;
-    
+
     private static final int MAX_TOKENS_NORMAL = 8192;
     private static final int MAX_TOKENS_EXPAND = 12288;
     private static final double TEMPERATURE_NORMAL = 0.12;
     private static final double TEMPERATURE_EXPAND = 0.28;
-    
+
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
     private static final int PICK_MAX_RETRY = 3;
-    
+
     private static final int GENRE_HORROR = 27;
     private static final int GENRE_THRILLER = 53;
-    
+
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态", "社会讽刺、现实隐喻", "底层生活、人间真实", "时代缩影、众生皆苦",
@@ -196,7 +197,7 @@ public class FilmReviewMain {
             System.out.println("🚀 影评生成任务启动");
             System.out.println("=".repeat(60));
             checkEnv();
-            
+
             List<String> usedMovies = loadUsedFromGist();
             System.out.println("📊 已处理电影数量：" + usedMovies.size());
 
@@ -207,10 +208,10 @@ public class FilmReviewMain {
             for (int attempt = 0; attempt < PICK_MAX_RETRY; attempt++) {
                 currentTmdbMovieInfo = null;
                 currentFilmTag = "";
-                
+
                 pickedMovie = pickOneMovie(usedMovies);
                 System.out.printf("\n🎯 最终选中电影：《%s》｜ 风格标签：【%s】\n", pickedMovie, currentFilmTag);
-                
+
                 if (currentTmdbMovieInfo != null) {
                     System.out.printf("📖 [TMDB影片信息] id=%d, 评分=%.2f, 简介长度=%d\n",
                             currentTmdbMovieInfo.id, currentTmdbMovieInfo.voteAverage,
@@ -242,11 +243,11 @@ public class FilmReviewMain {
             System.out.println("📏 影评正文原始长度：" + articleRawLength + " 字符");
 
             sendFeishuCard(pickedMovie, reviewResult, articleRawLength);
-            
+
             usedMovies.add(pickedMovie);
             saveUsedToGist(usedMovies);
             System.out.println("\n🎉 任务正常结束，Gist已保存已处理影片列表！");
-            
+
         } catch (Exception e) {
             System.err.println("\n💥 任务异常：" + e.getMessage());
             e.printStackTrace();
@@ -311,7 +312,7 @@ public class FilmReviewMain {
             System.out.println("\n👉 【步骤二】TMDB 无合适影片，走标签推荐策略（结合热点情绪）...");
             currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
             System.out.printf("  🎲 随机标签: 【%s】\n", currentFilmTag);
-            
+
             System.out.println("  🤖 正在让大模型推荐能切中当下社会痛点/热搜情绪的经典高分电影...");
             List<String> classicNames = aiGetClassicMovieNamesByTag(currentFilmTag);
             System.out.printf("  📜 大模型推荐: %s\n", classicNames);
@@ -361,7 +362,7 @@ public class FilmReviewMain {
 
     private static List<TmdbMovieInfo> fetchTmdbCandidates() {
         List<Long> idList = new ArrayList<>();
-        
+
         System.out.println("  🔥 [TMDB] 拉取本周热搜/趋势电影 (trending/week)...");
         try {
             HttpUrl url = HttpUrl.parse(TMDB_BASE + "/trending/movie/week")
@@ -458,13 +459,10 @@ public class FilmReviewMain {
                 "候选列表：\n" + jsonArr;
 
         String resp = callDeepSeek(prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
-        resp = stripCodeBlock(resp).trim();
-        int start = resp.indexOf('{');
-        int end = resp.lastIndexOf('}');
-        if (start != -1 && end > start) resp = resp.substring(start, end + 1);
+        resp = extractJsonSafely(resp);
 
         try {
-            JSONObject jo = JSON.parseObject(resp);
+            JSONObject jo = parseJsonLoose(resp);
             Object sid = jo.get("selectedId");
             if (sid == null) return null;
             return jo.getLong("selectedId");
@@ -502,11 +500,11 @@ public class FilmReviewMain {
                 "2. 严禁编造虚构影片，片名准确；过滤恐怖、惊悚、鬼怪；\n" +
                 "3. 只输出纯净JSON字符串数组，不要任何解释。\n" +
                 "输出示例：[\"怦然心动\",\"肖申克的救赎\"]";
-        
+
         String resp = callDeepSeek(prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
-        resp = stripCodeBlock(resp);
+        resp = extractJsonSafely(resp);
         try {
-            return JSON.parseArray(resp).toList(String.class);
+            return parseJsonArrayLoose(resp).toList(String.class);
         } catch (Exception e) {
             System.err.println("  ⚠️ 经典影片获取失败:" + e.getMessage());
             return new ArrayList<>();
@@ -521,9 +519,9 @@ public class FilmReviewMain {
                 "3.只输出纯净JSON数组。\n" +
                 "输出：[\"电影1\",\"电影2\"]";
         String resp = callDeepSeek(prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
-        resp = stripCodeBlock(resp);
+        resp = extractJsonSafely(resp);
         try {
-            return JSON.parseArray(resp).toList(String.class);
+            return parseJsonArrayLoose(resp).toList(String.class);
         } catch (Exception e) {
             System.err.println("  ⚠️ 兜底片库生成失败:" + e.getMessage());
             return new ArrayList<>();
@@ -609,7 +607,7 @@ public class FilmReviewMain {
             String prompt;
             int currentMaxToken;
             double currentTemp;
-            
+
             if (weakOverview) {
                 prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
                 currentMaxToken = MAX_TOKENS_EXPAND;
@@ -631,10 +629,7 @@ public class FilmReviewMain {
                 continue;
             }
 
-            contentRaw = stripCodeBlock(contentRaw).trim();
-            int start = contentRaw.indexOf('{');
-            int end = contentRaw.lastIndexOf('}');
-            if (start != -1 && end > start) contentRaw = contentRaw.substring(start, end + 1);
+            contentRaw = extractJsonSafely(contentRaw);
 
             if (contentRaw.isBlank()) {
                 emptyCount++;
@@ -645,7 +640,7 @@ public class FilmReviewMain {
 
             JSONObject jo;
             try {
-                jo = JSON.parseObject(contentRaw);
+                jo = parseJsonLoose(contentRaw);
             } catch (Exception e) {
                 System.err.printf("  ❌ JSON解析失败: %s\n", e.getMessage());
                 sleepRandom(1200, 2500);
@@ -681,13 +676,9 @@ public class FilmReviewMain {
         System.out.println("\n🚨 [保底] 常规重试耗尽，强制扩写...");
         String finalPrompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
         String finalRaw = callDeepSeek(finalPrompt, MAX_TOKENS_EXPAND, TEMPERATURE_EXPAND);
-        finalRaw = stripCodeBlock(finalRaw).trim();
-        
-        int fStart = finalRaw.indexOf('{');
-        int fEnd = finalRaw.lastIndexOf('}');
-        if (fStart != -1 && fEnd > fStart) finalRaw = finalRaw.substring(fStart, fEnd + 1);
-        
-        JSONObject fjo = JSON.parseObject(finalRaw);
+        finalRaw = extractJsonSafely(finalRaw);
+
+        JSONObject fjo = parseJsonLoose(finalRaw);
         ReviewResult finalRes = new ReviewResult();
         finalRes.centralArgument = fjo.getString("centralArgument");
         finalRes.titles = fjo.getJSONArray("titles").toList(String.class);
@@ -836,6 +827,7 @@ public class FilmReviewMain {
         }
     }
 
+    // ==================== 🔧 DeepSeek API 调用（已移除危险的 reasoning_content 回退） ====================
     private static String callDeepSeek(String prompt, int maxTokens, double temperature) throws IOException {
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_NET_RETRY; r++) {
@@ -867,19 +859,13 @@ public class FilmReviewMain {
                 JSONObject choice0 = jo.getJSONArray("choices").getJSONObject(0);
                 JSONObject msgObj = choice0.getJSONObject("message");
                 String modelContent = msgObj.getString("content");
-                String reasoningContent = msgObj.getString("reasoning_content");
 
-                if ((modelContent == null || modelContent.isBlank()) && reasoningContent != null && !reasoningContent.isBlank()) {
-                    String temp = stripCodeBlock(reasoningContent).trim();
-                    int tStart = temp.indexOf('{');
-                    int tEnd = temp.lastIndexOf('}');
-                    if (tStart != -1 && tEnd > tStart) {
-                        temp = temp.substring(tStart, tEnd + 1);
-                        JSON.parseObject(temp);
-                        modelContent = temp;
-                    }
+                // 🔧 修复：不再回退到 reasoning_content
+                // reasoning_content 是思维链文本，不是结构化JSON，强行解析会导致 input not end 异常
+                if (modelContent == null || modelContent.isBlank()) {
+                    System.err.println("  ⚠️ [DeepSeek] content为空，本次返回无效");
+                    return "";
                 }
-                if (modelContent == null || modelContent.isBlank()) return "";
                 return modelContent.trim();
             } catch (IOException e) {
                 lastEx = e;
@@ -888,6 +874,99 @@ public class FilmReviewMain {
         }
         throw new IOException("DeepSeek重试耗尽", lastEx);
     }
+
+    // ==================== 🔧 JSON 提取与容错解析工具方法 ====================
+
+    /**
+     * 安全提取JSON：去除代码块包裹 + 括号配对精确截取
+     */
+    private static String extractJsonSafely(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String s = stripCodeBlock(raw).trim();
+
+        // 找到第一个 { 或 [ 作为起点
+        char openChar = 0;
+        char closeChar = 0;
+        int startIdx = -1;
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (c == '{' || c == '[') {
+                openChar = c;
+                closeChar = (c == '{') ? '}' : ']';
+                startIdx = i;
+                break;
+            }
+        }
+        if (startIdx == -1) return s;
+
+        // 括号深度配对，感知字符串内的转义
+        int depth = 0;
+        boolean inString = false;
+        boolean escape = false;
+        int endIdx = -1;
+        for (int i = startIdx; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (escape) { escape = false; continue; }
+            if (c == '\\' && inString) { escape = true; continue; }
+            if (c == '"') { inString = !inString; continue; }
+            if (inString) continue;
+            if (c == openChar) depth++;
+            else if (c == closeChar) {
+                depth--;
+                if (depth == 0) { endIdx = i; break; }
+            }
+        }
+
+        if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
+            return s.substring(startIdx, endIdx + 1);
+        }
+
+        // 降级：简单截取
+        int fbStart = s.indexOf(openChar);
+        int fbEnd = s.lastIndexOf(closeChar);
+        if (fbStart != -1 && fbEnd > fbStart) {
+            return s.substring(fbStart, fbEnd + 1);
+        }
+        return s;
+    }
+
+    /**
+     * 容错解析 JSONObject：先标准解析，失败后用 IgnoreCheckClose 忽略尾部多余字符
+     */
+    private static JSONObject parseJsonLoose(String jsonStr) {
+        if (jsonStr == null || jsonStr.isBlank()) {
+            throw new RuntimeException("JSON字符串为空");
+        }
+        try {
+            return JSON.parseObject(jsonStr);
+        } catch (Exception e1) {
+            try {
+                return JSON.parseObject(jsonStr, JSONReader.Feature.IgnoreCheckClose);
+            } catch (Exception e2) {
+                throw new RuntimeException("JSON对象解析彻底失败: " + e2.getMessage(), e2);
+            }
+        }
+    }
+
+    /**
+     * 容错解析 JSONArray
+     */
+    private static JSONArray parseJsonArrayLoose(String jsonStr) {
+        if (jsonStr == null || jsonStr.isBlank()) {
+            throw new RuntimeException("JSON数组字符串为空");
+        }
+        try {
+            return JSON.parseArray(jsonStr);
+        } catch (Exception e1) {
+            try {
+                return JSON.parseArray(jsonStr, JSONReader.Feature.IgnoreCheckClose);
+            } catch (Exception e2) {
+                throw new RuntimeException("JSON数组解析彻底失败: " + e2.getMessage(), e2);
+            }
+        }
+    }
+
+    // ==================== 其他工具方法 ====================
 
     private static String removeInteractionCTA(String article) {
         if (article == null || article.isBlank()) return article;
@@ -911,7 +990,7 @@ public class FilmReviewMain {
         if (text == null) return "";
         text = text.replaceAll("【.*?】", "");
         text = text.replaceAll("\\n{3,}", "\n\n");
-        
+
         // 🌟 核心修复：强制替换掉暴露AI视角的“简介”相关词汇，保证语句通顺
         text = text.replaceAll("从简介(里|中|来看|可以看出|得知)", "在影片中");
         text = text.replaceAll("简介(里|中|提到|显示|写道)", "电影中");
@@ -919,7 +998,7 @@ public class FilmReviewMain {
         text = text.replaceAll("剧情简介", "电影情节");
         text = text.replaceAll("官方简介", "影片");
         text = text.replaceAll("正如简介", "正如影片");
-        
+
         return text.trim();
     }
 
@@ -931,9 +1010,13 @@ public class FilmReviewMain {
         }
     }
 
+    /**
+     * 🔧 修复：正确处理 ```json ... ``` 和 ``` ... ``` 格式的Markdown代码块
+     */
     private static String stripCodeBlock(String text) {
+        if (text == null) return "";
         String s = text.trim();
-        Pattern codePattern = Pattern.compile("^[a-zA-Z0-9]*\\R(.*?)\\R$", Pattern.DOTALL);
+        Pattern codePattern = Pattern.compile("^```(?:[a-zA-Z0-9]*)\\s*\\R?(.*?)\\R?\\s*```$", Pattern.DOTALL);
         Matcher matcher = codePattern.matcher(s);
         if (matcher.matches()) {
             s = matcher.group(1).trim();
