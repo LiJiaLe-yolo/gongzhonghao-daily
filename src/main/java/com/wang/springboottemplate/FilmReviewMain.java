@@ -678,7 +678,18 @@ public class FilmReviewMain {
         String finalRaw = callDeepSeek(finalPrompt, MAX_TOKENS_EXPAND, TEMPERATURE_EXPAND);
         finalRaw = extractJsonSafely(finalRaw);
 
-        JSONObject fjo = parseJsonLoose(finalRaw);
+        // 🔧 修复 1：增加空值防御，防止 parseJsonLoose 抛出 RuntimeException 导致程序崩溃
+        if (finalRaw == null || finalRaw.isBlank()) {
+            throw new MovieCannotHandleException("保底扩写依然返回空内容，模型可能触发了安全策略或拒绝回答");
+        }
+
+        JSONObject fjo;
+        try {
+            fjo = parseJsonLoose(finalRaw);
+        } catch (Exception e) {
+            throw new MovieCannotHandleException("保底扩写JSON解析彻底失败: " + e.getMessage());
+        }
+
         ReviewResult finalRes = new ReviewResult();
         finalRes.centralArgument = fjo.getString("centralArgument");
         finalRes.titles = fjo.getJSONArray("titles").toList(String.class);
@@ -857,13 +868,25 @@ public class FilmReviewMain {
                 }
                 JSONObject jo = JSON.parseObject(raw);
                 JSONObject choice0 = jo.getJSONArray("choices").getJSONObject(0);
+                
+                // 🔧 修复 3：检查 finish_reason
+                String finishReason = choice0.getString("finish_reason");
+                if ("length".equals(finishReason)) {
+                    System.err.println("  ⚠️ [DeepSeek] 输出达到 max_tokens 限制被截断 (finish_reason=length)，JSON将不完整。");
+                }
+
                 JSONObject msgObj = choice0.getJSONObject("message");
                 String modelContent = msgObj.getString("content");
+                String reasoningContent = msgObj.getString("reasoning_content"); // 🔧 修复 2：捕获思维链字段
 
                 // 🔧 修复：不再回退到 reasoning_content
                 // reasoning_content 是思维链文本，不是结构化JSON，强行解析会导致 input not end 异常
                 if (modelContent == null || modelContent.isBlank()) {
-                    System.err.println("  ⚠️ [DeepSeek] content为空，本次返回无效");
+                    System.err.println("  ⚠️ [DeepSeek] content为空，本次返回无效！");
+                    if (reasoningContent != null && !reasoningContent.isBlank()) {
+                        System.err.println("  💡 [DeepSeek] 发现 reasoning_content，模型可能在思维链中输出或陷入了死循环。");
+                    }
+                    System.err.println("  📄 [DeepSeek] 原始返回片段: " + raw.substring(0, Math.min(raw.length(), 300)));
                     return "";
                 }
                 return modelContent.trim();
