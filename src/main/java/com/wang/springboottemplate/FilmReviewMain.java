@@ -58,7 +58,7 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
-    // ================= Prompt 模板 (已强化视角伪装，抹除"简介"字眼) =================
+    // ================= Prompt 模板 (已强化视角伪装，抹除"简介"字眼，增加防截断指令) =================
     private static final String MAIN_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
@@ -94,7 +94,8 @@ public class FilmReviewMain {
             "}\n" +
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
-            "【硬性字数强制】正文汉字必须严格控制在1800‑2500，字数不足直接作废本次输出；不清楚的影片细节绝不编造，只返回JSON。";
+            "【硬性字数强制】正文汉字必须严格控制在1800‑2500，字数不足直接作废本次输出；不清楚的影片细节绝不编造，只返回JSON。\n" +
+            "⚠️【最高优先级】确保输出的 JSON 完整闭合！即使字数略少，也绝不能在 JSON 结构中间截断！优先保证 JSON 格式合法。";
 
     private static final String FALLBACK_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守】\n" +
@@ -123,7 +124,8 @@ public class FilmReviewMain {
             "  \"article\":\"正文markdown\"\n" +
             "}\n" +
             "\n" +
-            "电影《%s》，风格标签【%s】。只输出JSON。";
+            "电影《%s》，风格标签【%s】。只输出JSON。\n" +
+            "⚠️【最高优先级】确保输出的 JSON 完整闭合！即使字数略少，也绝不能在 JSON 结构中间截断！优先保证 JSON 格式合法。";
 
     private static final String EXPAND_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
@@ -155,7 +157,8 @@ public class FilmReviewMain {
             "  \"article\":\"markdown正文\"\n" +
             "}\n" +
             "\n" +
-            "电影《%s》，风格标签【%s】。";
+            "电影《%s》，风格标签【%s】。\n" +
+            "⚠️【最高优先级】确保输出的 JSON 完整闭合！即使字数略少，也绝不能在 JSON 结构中间截断！优先保证 JSON 格式合法。";
 
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
             .connectTimeout(30, TimeUnit.SECONDS)
@@ -633,7 +636,7 @@ public class FilmReviewMain {
 
             if (contentRaw.isBlank()) {
                 emptyCount++;
-                if (emptyCount >= 3) throw new MovieCannotHandleException("连续空返回");
+                if (emptyCount >= 3) throw new MovieCannotHandleException("连续空返回或JSON未闭合");
                 sleepRandom(1200, 2500);
                 continue;
             }
@@ -678,9 +681,9 @@ public class FilmReviewMain {
         String finalRaw = callDeepSeek(finalPrompt, MAX_TOKENS_EXPAND, TEMPERATURE_EXPAND);
         finalRaw = extractJsonSafely(finalRaw);
 
-        // 🔧 修复 1：增加空值防御，防止 parseJsonLoose 抛出 RuntimeException 导致程序崩溃
+        // 🔧 修复：增加空值防御，防止 parseJsonLoose 抛出 RuntimeException 导致程序崩溃
         if (finalRaw == null || finalRaw.isBlank()) {
-            throw new MovieCannotHandleException("保底扩写依然返回空内容，模型可能触发了安全策略或拒绝回答");
+            throw new MovieCannotHandleException("保底扩写依然返回空内容或JSON未闭合");
         }
 
         JSONObject fjo;
@@ -838,13 +841,14 @@ public class FilmReviewMain {
         }
     }
 
-    // ==================== 🔧 DeepSeek API 调用（已移除危险的 reasoning_content 回退） ====================
+    // ==================== 🔧 DeepSeek API 调用（已增加截断熔断与最大 Token 限制） ====================
     private static String callDeepSeek(String prompt, int maxTokens, double temperature) throws IOException {
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_NET_RETRY; r++) {
             JSONObject body = new JSONObject();
             body.put("model", DEEPSEEK_MODEL);
-            body.put("max_tokens", maxTokens);
+            // 🔧 修复：限制 maxTokens 不超过 8192，防止超出模型硬限制导致未知截断
+            body.put("max_tokens", Math.min(maxTokens, 8192));
             body.put("temperature", temperature);
             JSONObject respFormat = new JSONObject();
             respFormat.put("type", "json_object");
@@ -869,22 +873,21 @@ public class FilmReviewMain {
                 JSONObject jo = JSON.parseObject(raw);
                 JSONObject choice0 = jo.getJSONArray("choices").getJSONObject(0);
                 
-                // 🔧 修复 3：检查 finish_reason
+                // 🔧 修复：检查 finish_reason
                 String finishReason = choice0.getString("finish_reason");
                 if ("length".equals(finishReason)) {
-                    System.err.println("  ⚠️ [DeepSeek] 输出达到 max_tokens 限制被截断 (finish_reason=length)，JSON将不完整。");
+                    System.err.println("  🚨 [DeepSeek] 严重：输出达到 max_tokens 限制被截断！JSON 将不完整，本次输出作废。");
+                    return ""; // 直接返回空，触发上层重试
                 }
 
                 JSONObject msgObj = choice0.getJSONObject("message");
                 String modelContent = msgObj.getString("content");
-                String reasoningContent = msgObj.getString("reasoning_content"); // 🔧 修复 2：捕获思维链字段
+                String reasoningContent = msgObj.getString("reasoning_content");
 
-                // 🔧 修复：不再回退到 reasoning_content
-                // reasoning_content 是思维链文本，不是结构化JSON，强行解析会导致 input not end 异常
                 if (modelContent == null || modelContent.isBlank()) {
                     System.err.println("  ⚠️ [DeepSeek] content为空，本次返回无效！");
                     if (reasoningContent != null && !reasoningContent.isBlank()) {
-                        System.err.println("  💡 [DeepSeek] 发现 reasoning_content，模型可能在思维链中输出或陷入了死循环。");
+                        System.err.println("  💡 [DeepSeek] 发现 reasoning_content，模型可能在思维链中输出。");
                     }
                     System.err.println("  📄 [DeepSeek] 原始返回片段: " + raw.substring(0, Math.min(raw.length(), 300)));
                     return "";
@@ -901,13 +904,12 @@ public class FilmReviewMain {
     // ==================== 🔧 JSON 提取与容错解析工具方法 ====================
 
     /**
-     * 安全提取JSON：去除代码块包裹 + 括号配对精确截取
+     * 安全提取JSON：去除代码块包裹 + 括号配对精确截取 + 未闭合拦截
      */
     private static String extractJsonSafely(String raw) {
         if (raw == null || raw.isBlank()) return "";
         String s = stripCodeBlock(raw).trim();
 
-        // 找到第一个 { 或 [ 作为起点
         char openChar = 0;
         char closeChar = 0;
         int startIdx = -1;
@@ -920,9 +922,8 @@ public class FilmReviewMain {
                 break;
             }
         }
-        if (startIdx == -1) return s;
+        if (startIdx == -1) return "";
 
-        // 括号深度配对，感知字符串内的转义
         int depth = 0;
         boolean inString = false;
         boolean escape = false;
@@ -940,17 +941,13 @@ public class FilmReviewMain {
             }
         }
 
-        if (startIdx != -1 && endIdx != -1 && endIdx > startIdx) {
-            return s.substring(startIdx, endIdx + 1);
+        // 🔧 修复：如果括号未闭合，说明 JSON 被截断，直接丢弃，避免解析器崩溃
+        if (endIdx == -1) {
+            System.err.println("  ⚠️ [JSON提取] 检测到 JSON 未闭合（可能被截断），丢弃本次输出。");
+            return "";
         }
 
-        // 降级：简单截取
-        int fbStart = s.indexOf(openChar);
-        int fbEnd = s.lastIndexOf(closeChar);
-        if (fbStart != -1 && fbEnd > fbStart) {
-            return s.substring(fbStart, fbEnd + 1);
-        }
-        return s;
+        return s.substring(startIdx, endIdx + 1);
     }
 
     /**
