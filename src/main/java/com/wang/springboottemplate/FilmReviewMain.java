@@ -29,14 +29,19 @@ public class FilmReviewMain {
     private static final String GIST_FILENAME = "film_used_movies.json";
 
     private static final double TMDB_MIN_VOTE = 6.8;
+    // 保持原有的 1800-2500 字数要求
     private static final int ARTICLE_TARGET_MIN = 1800;
     private static final int ARTICLE_TARGET_MAX = 2500;
     private static final int OVERVIEW_WEAK_THRESHOLD = 250;
 
-    private static final int MAX_TOKENS_NORMAL = 8192;
-    private static final int MAX_TOKENS_EXPAND = 12288;
+    // 🔧 调大请求的 Token 期望值
+    private static final int MAX_TOKENS_NORMAL = 16384;
+    private static final int MAX_TOKENS_EXPAND = 32768;
     private static final double TEMPERATURE_NORMAL = 0.12;
     private static final double TEMPERATURE_EXPAND = 0.28;
+
+    // 🔧 新增：通过环境变量控制实际传递给 API 的 max_tokens 上限，默认 16384
+    private static final int DEEPSEEK_MAX_OUTPUT_TOKENS = getEnvInt("DEEPSEEK_MAX_OUTPUT_TOKENS", 16384);
 
     private static final int DEEPSEEK_NET_RETRY = 1;
     private static final int ARTICLE_MAX_RETRY = 4;
@@ -58,7 +63,7 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
-    // ================= Prompt 模板 (已强化视角伪装，抹除"简介"字眼，增加防截断指令) =================
+    // ================= Prompt 模板 =================
     private static final String MAIN_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守，违反直接作废本次输出】\n" +
             "角色：资深公众号爆款影评撰稿人。面向普通公众号读者，拒绝晦涩学院派话术。\n" +
@@ -94,8 +99,8 @@ public class FilmReviewMain {
             "}\n" +
             "\n" +
             "为电影《%s》撰写公众号影评，影片风格标签【%s】。\n" +
-            "【硬性字数与防截断强制】正文汉字严格控制在 1600-2200 字之间。⚠️【极度重要】必须语言精炼，严禁车轱辘话反复说、严禁过度展开无关细节！确保完整 JSON 在 6000 tokens 内输出完毕，若因注水导致超过 8192 tokens 被系统强制截断，本次输出将直接作废！\n" +
-            "⚠️【最高优先级】确保输出的 JSON 完整闭合！即使字数略少，也绝不能在 JSON 结构中间截断！优先保证 JSON 格式合法。";
+            "【硬性字数强制】正文汉字必须严格控制在1800‑2500，字数不足直接作废本次输出；不清楚的影片细节绝不编造，只返回JSON。\n" +
+            "⚠️【最高优先级】确保输出的 JSON 完整闭合！语言精炼，严禁车轱辘话！即使字数略少，也绝不能在 JSON 结构中间截断！优先保证 JSON 格式合法。";
 
     private static final String FALLBACK_REVIEW_PROMPT_TPL =
             "【硬性强制规则，必须全部遵守】\n" +
@@ -114,7 +119,7 @@ public class FilmReviewMain {
             "3.主体3‑4个解读角度，全部基于影片真实细节，落地普通人生活感受。\n" +
             "4.结尾金句+一句有力反问引发读者内心思考，自然收束；段落短小适配手机；去除AI模板化套话。\n" +
             "5.必须将核心金句、情绪共鸣点使用 Markdown 的 **加粗** 语法高亮。\n" +
-            "6.【硬性字数与防截断强制】正文汉字严格控制在 1600-2200 字之间。⚠️【极度重要】必须语言精炼，严禁车轱辘话反复说！确保完整 JSON 在 6000 tokens 内输出完毕，若因注水导致被系统强制截断，本次输出将直接作废！\n" +
+            "6.【硬性强制】正文汉字严格1800‑2500，字数不够直接作废。\n" +
             "7.严禁出现“评论区聊聊”“评论区等你”“欢迎留言”等引导评论区互动的套话。结尾反问仅用于引发思考，不引导互动。\n" +
             "\n" +
             "✅输出JSON格式，禁止代码块、多余文字：\n" +
@@ -148,7 +153,7 @@ public class FilmReviewMain {
             "Step6 手机阅读短段落，必须将中心论点、核心金句、强烈情绪共鸣的句子使用 Markdown 的 **加粗** 语法进行高亮展示，剔除AI套话。\n" +
             "\n" +
             "🚫禁止链接、导流话术；严禁出现“评论区聊聊”“评论区等你”“欢迎留言”等引导评论区互动的套话。结尾反问仅用于引发读者内心思考，不引导互动。\n" +
-            "【硬性字数与防截断强制】正文严格控制在 1600-2200 字符之间。⚠️【极度重要】必须语言精炼，严禁车轱辘话反复说！确保完整 JSON 在 8000 tokens 内输出完毕，若因注水导致被系统强制截断，本次输出将直接作废！\n" +
+            "【硬性强制】正文严格1800‑2500字符，必须达到该区间。允许现实感悟充分延展，但绝对不能编造电影里不存在的情节。\n" +
             "\n" +
             "✅仅输出JSON，不要代码块，不要额外文字：\n" +
             "{\n" +
@@ -192,6 +197,12 @@ public class FilmReviewMain {
     public static class TmdbGenre {
         public int id;
         public String name;
+    }
+    
+    private static int getEnvInt(String name, int defaultValue) {
+        String value = System.getenv(name);
+        if (value == null || value.isBlank()) return defaultValue;
+        try { return Integer.parseInt(value.trim()); } catch (Exception e) { return defaultValue; }
     }
 
     public static void main(String[] args) {
@@ -645,9 +656,12 @@ public class FilmReviewMain {
             try {
                 jo = parseJsonLoose(contentRaw);
             } catch (Exception e) {
-                System.err.printf("  ❌ JSON解析失败: %s\n", e.getMessage());
-                sleepRandom(1200, 2500);
-                continue;
+                System.err.printf("  ❌ JSON解析失败，尝试正则补救: %s\n", e.getMessage());
+                jo = extractJsonByRegex(contentRaw);
+                if (jo == null) {
+                    sleepRandom(1200, 2500);
+                    continue;
+                }
             }
 
             String article = jo.getString("article");
@@ -689,7 +703,10 @@ public class FilmReviewMain {
         try {
             fjo = parseJsonLoose(finalRaw);
         } catch (Exception e) {
-            throw new MovieCannotHandleException("保底扩写JSON解析彻底失败: " + e.getMessage());
+            fjo = extractJsonByRegex(finalRaw);
+            if (fjo == null) {
+                throw new MovieCannotHandleException("保底扩写JSON解析彻底失败: " + e.getMessage());
+            }
         }
 
         ReviewResult finalRes = new ReviewResult();
@@ -840,13 +857,14 @@ public class FilmReviewMain {
         }
     }
 
-    // ==================== 🔧 DeepSeek API 调用（已增加截断熔断与最大 Token 限制） ====================
+    // ==================== 🔧 DeepSeek API 调用 ====================
     private static String callDeepSeek(String prompt, int maxTokens, double temperature) throws IOException {
         IOException lastEx = null;
         for (int r = 0; r <= DEEPSEEK_NET_RETRY; r++) {
             JSONObject body = new JSONObject();
             body.put("model", DEEPSEEK_MODEL);
-            body.put("max_tokens", Math.min(maxTokens, 8192));
+            // 🔧 使用环境变量配置的最大 Token 限制，避免写死 8192
+            body.put("max_tokens", Math.min(maxTokens, DEEPSEEK_MAX_OUTPUT_TOKENS));
             body.put("temperature", temperature);
             JSONObject respFormat = new JSONObject();
             respFormat.put("type", "json_object");
@@ -902,9 +920,6 @@ public class FilmReviewMain {
 
     // ==================== 🔧 JSON 提取与容错解析工具方法 ====================
 
-    /**
-     * 安全提取JSON：去除代码块包裹 + 括号配对精确截取 + 截断自动修复
-     */
     private static String extractJsonSafely(String raw) {
         if (raw == null || raw.isBlank()) return "";
         String s = stripCodeBlock(raw).trim();
@@ -940,12 +955,10 @@ public class FilmReviewMain {
             }
         }
 
-        // 🔧 核心修复：如果括号未闭合，说明 JSON 被截断，尝试自动补全而不是直接丢弃
         if (endIdx == -1) {
             System.err.println("  ⚠️ [JSON提取] 检测到 JSON 未闭合（可能被截断），尝试自动修复...");
             String truncated = s.substring(startIdx);
             
-            // 1. 统计缺失的括号和引号状态
             int openBrace = 0, openBracket = 0;
             boolean currentInString = false;
             boolean currentEscape = false;
@@ -961,10 +974,9 @@ public class FilmReviewMain {
                 else if (c == ']') openBracket--;
             }
             
-            // 2. 自动补全
             StringBuilder fixed = new StringBuilder(truncated);
             if (currentInString) {
-                fixed.append("\""); // 闭合未完成的字符串
+                fixed.append("\""); 
             }
             while (openBracket > 0) {
                 fixed.append("]");
@@ -981,9 +993,54 @@ public class FilmReviewMain {
         return s.substring(startIdx, endIdx + 1);
     }
 
-    /**
-     * 容错解析 JSONObject：先标准解析，失败后用 IgnoreCheckClose 忽略尾部多余字符
-     */
+    // 🔧 新增：正则补救机制，当 JSON 损坏严重无法解析时，强行提取核心字段
+    private static JSONObject extractJsonByRegex(String text) {
+        if (text == null || text.isBlank()) return null;
+        try {
+            JSONObject jo = new JSONObject();
+            
+            Pattern argPattern = Pattern.compile("\"centralArgument\"\\s*:\\s*\"((?:[^\"\\\\]|\\\\.)*)\"", Pattern.DOTALL);
+            Matcher argMatcher = argPattern.matcher(text);
+            if (argMatcher.find()) {
+                jo.put("centralArgument", argMatcher.group(1).replace("\\\"", "\"").replace("\\n", "\n"));
+            }
+            
+            Pattern titlesPattern = Pattern.compile("\"titles\"\\s*:\\s*\\[(.*?)\\]", Pattern.DOTALL);
+            Matcher titlesMatcher = titlesPattern.matcher(text);
+            if (titlesMatcher.find()) {
+                String titlesStr = titlesMatcher.group(1);
+                Pattern titleItemPattern = Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"");
+                Matcher titleItemMatcher = titleItemPattern.matcher(titlesStr);
+                JSONArray titles = new JSONArray();
+                while (titleItemMatcher.find()) {
+                    titles.add(titleItemMatcher.group(1).replace("\\\"", "\"").replace("\\n", "\n"));
+                }
+                jo.put("titles", titles);
+            }
+            
+            int articleStart = text.indexOf("\"article\"");
+            if (articleStart != -1) {
+                int valueStart = text.indexOf("\"", articleStart + 9);
+                if (valueStart != -1) {
+                    int valueEnd = text.lastIndexOf("\"");
+                    if (valueEnd > valueStart) {
+                        String articleContent = text.substring(valueStart + 1, valueEnd);
+                        articleContent = articleContent.replace("\\n", "\n").replace("\\\"", "\"").replace("\\\\", "\\");
+                        jo.put("article", articleContent);
+                    }
+                }
+            }
+            
+            if (jo.containsKey("article") && jo.containsKey("titles") && jo.containsKey("centralArgument")) {
+                System.err.println("  🔧 [正则补救] 成功提取 JSON 字段！");
+                return jo;
+            }
+        } catch (Exception e) {
+            System.err.println("  ❌ [正则补救] 失败: " + e.getMessage());
+        }
+        return null;
+    }
+
     private static JSONObject parseJsonLoose(String jsonStr) {
         if (jsonStr == null || jsonStr.isBlank()) {
             throw new RuntimeException("JSON字符串为空");
@@ -999,9 +1056,6 @@ public class FilmReviewMain {
         }
     }
 
-    /**
-     * 容错解析 JSONArray
-     */
     private static JSONArray parseJsonArrayLoose(String jsonStr) {
         if (jsonStr == null || jsonStr.isBlank()) {
             throw new RuntimeException("JSON数组字符串为空");
@@ -1016,8 +1070,6 @@ public class FilmReviewMain {
             }
         }
     }
-
-    // ==================== 其他工具方法 ====================
 
     private static String removeInteractionCTA(String article) {
         if (article == null || article.isBlank()) return article;
@@ -1042,7 +1094,6 @@ public class FilmReviewMain {
         text = text.replaceAll("【.*?】", "");
         text = text.replaceAll("\\n{3,}", "\n\n");
 
-        // 🌟 核心修复：强制替换掉暴露AI视角的“简介”相关词汇，保证语句通顺
         text = text.replaceAll("从简介(里|中|来看|可以看出|得知)", "在影片中");
         text = text.replaceAll("简介(里|中|提到|显示|写道)", "电影中");
         text = text.replaceAll("根据简介", "在故事里");
@@ -1061,9 +1112,6 @@ public class FilmReviewMain {
         }
     }
 
-    /**
-     * 🔧 修复：正确处理 ```json ... ``` 和 ``` ... ``` 格式的Markdown代码块
-     */
     private static String stripCodeBlock(String text) {
         if (text == null) return "";
         String s = text.trim();
