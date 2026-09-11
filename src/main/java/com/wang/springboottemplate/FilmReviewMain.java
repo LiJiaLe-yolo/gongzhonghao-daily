@@ -58,10 +58,10 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
-    // ====================== 幕尽公众号影评选题探测 Skill 系统提示词【优先执行】 ======================
+    // ====================== 幕尽公众号影评选题探测 Skill系统提示词【新增微信指数趋势预判】 ======================
     private static final String SKILL_SYSTEM_PROMPT = """
 你是公众号【幕尽】专属影视选题探测助理。
-账号定位：深度人性向影评公众号；流量目标优先适配微信搜一搜、看一看；拒绝纯剧情复述，主打人性、欲望、家庭、遗憾、普通人困境。
+账号定位：深度人性向影评公众号；核心目标最大化利用微信搜一搜、看一看免费公域流量；拒绝纯剧情复述，主打人性、欲望、家庭、遗憾、普通人困境。
 
 ## 筛选打分规则，每项0或者1分
 1.【搜索基础】1=作品有广泛群众基础，豆瓣标记人数高，外部平台热度上涨；0=热度低迷、受众极小
@@ -73,12 +73,26 @@ public class FilmReviewMain {
 总分≥3 → A池｜第一梯队（优先写，冲搜一搜&看一看流量）
 总分≤2 → B池｜粉丝向调剂选题，不优先冲流量
 
+## 新增：微信指数趋势预判（非常关键，对应微信搜一搜看一看公域流量）
+注意：你**无法访问微信指数真实接口，只能基于全网舆情、影片上映/二创翻红情况做推演预判**，最终必须由人工打开微信指数小程序核验真实数据。
+枚举值三选一：
+-上升：近期全网讨论度走高（新上映新完结、短视频二创翻红，适合近期发布，吃短期搜一搜看一看流量）
+-平稳：经典高分老片，长期稳定有搜索（长尾搜一搜流量，随时可发）
+-下降：热度已经褪去，话题冷却，尽量避开，仅作为B池备选。
+
 ## 硬性约束
-1. 优先挑选A池第一梯队候选；B池仅作为调剂备选。
+1. 优先挑选A池，优先优先选择预判趋势为【上升 / 平稳】；预判【下降】尽量不作为首选，仅无候选时B池兜底。
 2. 禁止恐怖、惊悚、鬼怪类题材。
 3. 不要编造不存在的电影，片名必须真实公映。
-4. 输出优先给出：影片名字、归属A/B池、简要核心写作切入点。
-5. 重要限制：你无法访问微信搜一搜、微信指数、看一看内部数据，输出仅为初筛候选，后续需要人工复核微信生态热度。
+4. 输出JSON数组，每一条字段：
+{
+"filmName":"影片中文名字",
+"pool":"A池|B池",
+"wechatIndexTrend":"上升|平稳|下降",
+"coreIdea":"简要核心写作切入点",
+"scoreTotal":"总分0~4"
+}
+5. 重要限制：你无法访问微信搜一搜、微信指数、看一看内部真实数据，输出仅为AI推演初筛候选，**后续必须人工打开微信指数小程序复核热度，再决定是否写作发布**。
 """;
 
     private static final String MAIN_REVIEW_PROMPT_TPL =
@@ -192,6 +206,7 @@ public class FilmReviewMain {
 
     private static String currentFilmTag = "";
     private static TmdbMovieInfo currentTmdbMovieInfo = null;
+    private static String currentPredictWechatTrend = ""; //新增：模型预判微信指数趋势
 
     public static class ReviewResult {
         public String centralArgument;
@@ -219,6 +234,15 @@ public class FilmReviewMain {
         public String name;
     }
 
+    //Skill输出单条候选实体
+    public static class SkillFilmCandidate{
+        public String filmName;
+        public String pool;
+        public String wechatIndexTrend;
+        public String coreIdea;
+        public Integer scoreTotal;
+    }
+
     private static int getEnvInt(String name, int defaultValue) {
         String value = System.getenv(name);
         if (value == null || value.isBlank()) return defaultValue;
@@ -232,7 +256,7 @@ public class FilmReviewMain {
     public static void main(String[] args) {
         try {
             System.out.println("\n" + "=".repeat(60));
-            System.out.println("🚀 影评生成任务启动【优先Skill选题探测，TMDB后置校验兜底】");
+            System.out.println("🚀 影评生成任务启动【优先Skill选题探测，加入微信指数趋势预判，TMDB后置校验兜底】");
             System.out.println("=".repeat(60));
             checkEnv();
             List<String> usedMovies = loadUsedFromGist();
@@ -240,11 +264,15 @@ public class FilmReviewMain {
             ReviewResult reviewResult = null;
             String pickedMovie = null;
             currentTmdbMovieInfo = null;
+            currentPredictWechatTrend = "";
             for (int attempt = 0; attempt < PICK_MAX_RETRY; attempt++) {
                 currentTmdbMovieInfo = null;
                 currentFilmTag = "";
+                currentPredictWechatTrend = "";
                 pickedMovie = pickOneMovie(usedMovies);
-                System.out.printf("\n🎯 最终选中电影：《%s》｜ 风格标签：【%s】\n", pickedMovie, currentFilmTag);
+                System.out.printf("\n🎯 最终选中电影：《%s》｜ 风格标签：【%s】｜模型预判微信指数趋势：【%s】\n",
+                        pickedMovie, currentFilmTag, currentPredictWechatTrend);
+                System.out.println("⚠️提醒：模型仅推演预判，请务必人工打开【微信指数小程序】复核真实热度再决定发布！");
                 if (currentTmdbMovieInfo != null) {
                     System.out.printf("📖 [TMDB影片信息] id=%d, 评分=%.2f, 简介长度=%d\n",
                             currentTmdbMovieInfo.id, currentTmdbMovieInfo.voteAverage,
@@ -259,6 +287,7 @@ public class FilmReviewMain {
                     System.err.printf("❌ [WARN] 当前影片《%s》模型多次生成仍未达标，msg=%s\n", pickedMovie, e.getMessage());
                     usedMovies.add(pickedMovie);
                     currentTmdbMovieInfo = null;
+                    currentPredictWechatTrend = "";
                 }
             }
             if (reviewResult == null) {
@@ -293,24 +322,31 @@ public class FilmReviewMain {
     private static String pickOneMovie(List<String> used) throws Exception {
         for (int i = 0; i < PICK_MAX_RETRY; i++) {
             System.out.println("\n" + "=".repeat(60));
-            System.out.printf("🔄 [选片] 第 %d/%d 次尝试｜优先公众号Skill选题探测\n", i + 1, PICK_MAX_RETRY);
+            System.out.printf("🔄 [选片] 第 %d/%d 次尝试｜优先公众号Skill选题探测（含微信指数趋势预判）\n", i + 1, PICK_MAX_RETRY);
             System.out.println("=".repeat(60));
 
-            // =========【变更：第一步优先Skill产出候选，公众号热度优先】=========
+            // =========阶段一 Skill优先选题探测，输出带微信指数预判的候选数组 =========
             System.out.println("\n👉【阶段一：Skill优先选题探测，面向公众号搜一搜看一看流量】");
             currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
             System.out.printf("  🎲 Skill随机风格标签: 【%s】\n", currentFilmTag);
-            List<String> skillCandidates = aiGetClassicMovieNamesByTag(currentFilmTag);
-            System.out.printf("  📜 Skill输出公众号适配候选列表：%s\n", skillCandidates);
+            List<SkillFilmCandidate> skillCandidates = aiGetClassicMovieNamesByTag(currentFilmTag);
+            System.out.printf("  📜 Skill输出公众号适配候选数量：%d\n", skillCandidates.size());
 
-            // Skill候选逐个做TMDB校验、黑名单、已用过滤
+            // 遍历Skill候选：优先【上升/平稳】，尽量跳过【下降】
             boolean skillFound = false;
-            for (String name : skillCandidates) {
+            for (SkillFilmCandidate cand : skillCandidates) {
+                String name = cand.filmName;
+                // 热度下降优先跳过，无候选才放行兜底
+                if("下降".equals(cand.wechatIndexTrend)){
+                    System.out.printf("  ⚠️ Skill候选《%s》预判微信指数趋势【下降】，优先跳过\n", name);
+                    continue;
+                }
                 if (isBlackMovie(name) || used.contains(name)) {
                     System.out.printf("  🚫 Skill候选跳过: %s (黑名单/已生成)\n", name);
                     continue;
                 }
-                System.out.printf("  🔍 TMDB校验Skill输出影片：%s\n", name);
+                System.out.printf("  🔍 TMDB校验Skill输出影片：%s｜预判微信趋势：%s｜池：%s｜分数：%d\n",
+                        name, cand.wechatIndexTrend, cand.pool, cand.scoreTotal);
                 TmdbMovieInfo searchInfo = tmdbSearchMovie(name);
                 if (searchInfo == null) {
                     System.out.printf("  ❌ TMDB查无此片：%s\n", name);
@@ -325,15 +361,17 @@ public class FilmReviewMain {
                 if (isValidTmdbMovie(searchInfo)) {
                     currentTmdbMovieInfo = searchInfo;
                     currentFilmTag = autoMapFilmTagByGenres(searchInfo);
-                    System.out.printf("  ✅ Skill优先选片命中！《%s》｜标签【%s】\n", searchInfo.title, currentFilmTag);
+                    currentPredictWechatTrend = cand.wechatIndexTrend;
+                    System.out.printf("  ✅ Skill优先选片命中！《%s》｜标签【%s】｜预判微信指数趋势【%s】\n",
+                            searchInfo.title, currentFilmTag, currentPredictWechatTrend);
                     return searchInfo.title;
                 } else {
                     System.out.printf("  ❌ TMDB校验不通过(评分/简介太短)：%s\n", name);
                 }
             }
-            System.out.println("  ⚠️ Skill全部候选经过TMDB校验后无可用，进入TMDB榜单兜底阶段");
+            System.out.println("  ⚠️ Skill全部上升/平稳候选经过TMDB校验后无可用，进入TMDB榜单兜底阶段");
 
-            // =========【变更：TMDB榜单退化为第二阶段兜底，不再优先】=========
+            // =========阶段二 TMDB榜单退化为兜底 =========
             if (TMDB_API_KEY != null && !TMDB_API_KEY.isBlank()) {
                 List<TmdbMovieInfo> tmdbCandidates = fetchTmdbCandidates();
                 System.out.printf("\n👉【阶段二 TMDB兜底候选，候选数量: %d\n", tmdbCandidates.size());
@@ -350,14 +388,16 @@ public class FilmReviewMain {
                 }
                 System.out.printf("  ✅ TMDB过滤后有效候选: %d 部\n", filtered.size());
                 if (!filtered.isEmpty()) {
-                    System.out.println("  🤖 兜底阶段调用Skill从TMDB列表挑选适配公众号影片");
-                    Long selectedId = aiSelectBestFilm(filtered);
-                    if (selectedId != null) {
+                    System.out.println("  🤖 兜底阶段调用Skill从TMDB列表挑选适配公众号影片，并预判微信指数趋势");
+                    SkillFilmCandidate selectedCand = aiSelectBestFilm(filtered);
+                    if(selectedCand != null){
                         for (TmdbMovieInfo info : filtered) {
-                            if (info.id == selectedId) {
+                            if (info.title.equals(selectedCand.filmName) || info.originalTitle.equals(selectedCand.filmName)) {
                                 currentTmdbMovieInfo = info;
                                 currentFilmTag = autoMapFilmTagByGenres(info);
-                                System.out.printf("  🎉 TMDB兜底Skill选中：《%s》| 标签：【%s】\n", info.title, currentFilmTag);
+                                currentPredictWechatTrend = selectedCand.wechatIndexTrend;
+                                System.out.printf("  🎉 TMDB兜底Skill选中：《%s》| 标签：【%s】｜预判微信指数趋势【%s】\n",
+                                        info.title, currentFilmTag, currentPredictWechatTrend);
                                 return info.title;
                             }
                         }
@@ -368,14 +408,16 @@ public class FilmReviewMain {
                 System.out.println("  ⚠️ 未配置 TMDB_API_KEY，跳过TMDB兜底");
             }
 
-            // =========【阶段三：完全兜底，纯Skill生成片名，跳过TMDB校验，防止程序卡死】=========
+            // =========阶段三 终极兜底，Skill直接输出候选池 =========
             System.out.println("\n👉【阶段三：终极兜底，Skill直接输出候选池】");
             currentFilmTag = FILM_TAGS[ThreadLocalRandom.current().nextInt(FILM_TAGS.length)];
-            List<String> aiPool = aiGenerateTaggedMoviePool();
-            for (String n : aiPool) {
+            List<SkillFilmCandidate> aiPool = aiGenerateTaggedMoviePool();
+            for (SkillFilmCandidate cand : aiPool) {
+                String n = cand.filmName;
                 if (!isBlackMovie(n) && !used.contains(n)) {
                     currentTmdbMovieInfo = null;
-                    System.out.printf("  🎉 终极兜底Skill选中：《%s》\n", n);
+                    currentPredictWechatTrend = cand.wechatIndexTrend;
+                    System.out.printf("  🎉 终极兜底Skill选中：《%s》｜预判微信指数趋势【%s】\n", n, currentPredictWechatTrend);
                     return n;
                 }
             }
@@ -463,7 +505,7 @@ public class FilmReviewMain {
         return validList;
     }
 
-    private static Long aiSelectBestFilm(List<TmdbMovieInfo> candidates) throws IOException {
+    private static SkillFilmCandidate aiSelectBestFilm(List<TmdbMovieInfo> candidates) throws IOException {
         JSONArray jsonArr = new JSONArray();
         for (TmdbMovieInfo info : candidates) {
             JSONObject item = new JSONObject();
@@ -473,21 +515,22 @@ public class FilmReviewMain {
             item.put("overview", info.overview);
             jsonArr.add(item);
         }
-        String prompt = "下面是一批候选电影，请结合【近期社会热点话题/热搜情绪】（如：职场内耗、亲密关系困境、生存压力、女性觉醒、原生家庭、反内卷等），从中挑选最适合写公众号深度爆款影评的一部。\n" +
-                "筛选标准：\n" +
-                "1. 极具话题度，能蹭上近期网络热点情绪，容易引发读者转发和共鸣，拒绝自嗨和纯爆米花爽片；\n" +
-                "2. 剧情信息充足，有足够的人性/现实解读空间；\n" +
-                "3. 候选列表已过滤恐怖惊悚题材；\n" +
-                "4. 只输出JSON，格式 {\"selectedId\":数字}。\n" +
-                "如果全部都不具备热点话题潜力，输出 {\"selectedId\":null}。\n" +
+        String prompt = "下面是一批候选电影，请结合【近期社会热点话题/热搜情绪】，输出JSON数组，每一项字段 filmName、pool、wechatIndexTrend[上升|平稳|下降]、coreIdea、scoreTotal(0‑4)。\n" +
+                "优先挑选A池，优先上升、平稳；下降尽量不作为首选。\n" +
                 "候选列表：\n" + jsonArr;
         String resp = callDeepSeek(SKILL_SYSTEM_PROMPT, prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
         resp = extractJsonSafely(resp);
         try {
-            JSONObject jo = parseJsonLoose(resp);
-            Object sid = jo.get("selectedId");
-            if (sid == null) return null;
-            return jo.getLong("selectedId");
+            JSONArray arr = parseJsonArrayLoose(resp);
+            if(arr.isEmpty()) return null;
+            JSONObject jo = arr.getJSONObject(0);
+            SkillFilmCandidate c = new SkillFilmCandidate();
+            c.filmName = jo.getString("filmName");
+            c.pool = jo.getString("pool");
+            c.wechatIndexTrend = jo.getString("wechatIndexTrend");
+            c.coreIdea = jo.getString("coreIdea");
+            c.scoreTotal = jo.getInteger("scoreTotal");
+            return c;
         } catch (Exception e) {
             System.err.println("  ⚠️ AI选片解析失败: " + e.getMessage());
             return null;
@@ -512,34 +555,49 @@ public class FilmReviewMain {
         return fallbackTags.get(ThreadLocalRandom.current().nextInt(fallbackTags.size()));
     }
 
-    private static List<String> aiGetClassicMovieNamesByTag(String tag) throws IOException {
-        String prompt = "请结合【近期容易引发全网共鸣的社会热点/热搜情绪】（如：反内卷、搞钱焦虑、中年危机、女性独立、原生家庭创伤等），并根据风格标签【" + tag + "】，输出最多5部世界范围内真实公映过的高分经典电影中文片名。\n" +
-                "硬性约束：\n" +
-                "1. 必须是能切中当下社会痛点、自带热搜话题属性的电影；\n" +
-                "2. 严禁编造虚构影片，片名准确；过滤恐怖、惊悚、鬼怪；\n" +
-                "3. 只输出纯净JSON字符串数组，不要任何解释。\n" +
-                "输出示例：[\"怦然心动\",\"肖申克的救赎\"]";
+    private static List<SkillFilmCandidate> aiGetClassicMovieNamesByTag(String tag) throws IOException {
+        String prompt = "请结合【近期容易引发全网共鸣的社会热点/热搜情绪】，根据风格标签【" + tag + "】输出JSON数组，每条字段 filmName、pool、wechatIndexTrend[上升|平稳|下降]、coreIdea、scoreTotal(0‑4)。\n" +
+                "约束：真实公映高分电影，禁止恐怖惊悚；优先A池，优先上升/平稳，下降仅做备选。";
         String resp = callDeepSeek(SKILL_SYSTEM_PROMPT, prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
         resp = extractJsonSafely(resp);
+        List<SkillFilmCandidate> list = new ArrayList<>();
         try {
-            return parseJsonArrayLoose(resp).toList(String.class);
+            JSONArray arr = parseJsonArrayLoose(resp);
+            for(int i=0;i<arr.size();i++){
+                JSONObject jo = arr.getJSONObject(i);
+                SkillFilmCandidate c = new SkillFilmCandidate();
+                c.filmName = jo.getString("filmName");
+                c.pool = jo.getString("pool");
+                c.wechatIndexTrend = jo.getString("wechatIndexTrend");
+                c.coreIdea = jo.getString("coreIdea");
+                c.scoreTotal = jo.getInteger("scoreTotal");
+                list.add(c);
+            }
+            return list;
         } catch (Exception e) {
             System.err.println("  ⚠️ 经典影片获取失败:" + e.getMessage());
             return new ArrayList<>();
         }
     }
 
-    private static List<String> aiGenerateTaggedMoviePool() throws IOException {
-        String prompt = "请根据风格标签【" + currentFilmTag + "】，输出10部真实上映的高分电影中文片名。\n" +
-                "硬性约束：\n" +
-                "1.禁止编造不存在影片；过滤恐怖、惊悚、鬼怪题材。\n" +
-                "2.贴合标签调性，适合公众号深度影评。\n" +
-                "3.只输出纯净JSON数组。\n" +
-                "输出：[\"电影1\",\"电影2\"]";
-        String resp = callDeepSeek(SKILL_SYSTEM_PROMPT, prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL);
+    private static List<SkillFilmCandidate> aiGenerateTaggedMoviePool() throws IOException {
+        String prompt = "根据风格标签【" + currentFilmTag + "】输出JSON数组，每条字段 filmName、pool、wechatIndexTrend[上升|平稳|下降]、coreIdea、scoreTotal(0‑4)；真实高分电影，过滤恐怖惊悚。";
+        String resp = callDeepSeek(SKILL_SYSTEM_PROMPT, prompt, MAX_TOKENS_NORMAL, TEMPERATURE_EXPAND);
         resp = extractJsonSafely(resp);
+        List<SkillFilmCandidate> list = new ArrayList<>();
         try {
-            return parseJsonArrayLoose(resp).toList(String.class);
+            JSONArray arr = parseJsonArrayLoose(resp);
+            for(int i=0;i<arr.size();i++){
+                JSONObject jo = arr.getJSONObject(i);
+                SkillFilmCandidate c = new SkillFilmCandidate();
+                c.filmName = jo.getString("filmName");
+                c.pool = jo.getString("pool");
+                c.wechatIndexTrend = jo.getString("wechatIndexTrend");
+                c.coreIdea = jo.getString("coreIdea");
+                c.scoreTotal = jo.getInteger("scoreTotal");
+                list.add(c);
+            }
+            return list;
         } catch (Exception e) {
             System.err.println("  ⚠️ 兜底片库生成失败:" + e.getMessage());
             return new ArrayList<>();
@@ -637,7 +695,6 @@ public class FilmReviewMain {
             }
             String contentRaw;
             try {
-                // 写影评：不注入Skill系统提示词
                 contentRaw = callDeepSeek(null, prompt, currentMaxToken, currentTemp);
             } catch (IOException ex) {
                 System.err.printf("  ❌ 网络异常: %s\n", ex.getMessage());
@@ -737,6 +794,8 @@ public class FilmReviewMain {
             infoText.put("tag", "lark_md");
             infoText.put("content",
                     "**🏷️ 风格标签：**" + currentFilmTag + "\n" +
+                    "**📡模型预判微信指数趋势：**" + currentPredictWechatTrend + "\n" +
+                    "> ⚠️重要提醒：仅AI推演，请打开微信指数小程序人工复核真实热度\n" +
                     "**💡 中心论点：**" + result.centralArgument + "\n" +
                     "**📏 正文长度：**" + articleLength + " 字符");
             infoDiv.put("text", infoText);
@@ -870,8 +929,7 @@ public class FilmReviewMain {
                 if ("length".equals(finishReason)) {
                     System.err.println("  ⚠️ [DeepSeek] 输出达到 max_tokens 限制被截断！将尝试提取已生成内容并自动修复。");
                     JSONObject msgObj = choice0.getJSONObject("message");
-                    String partialContent = msgObj.getString("content");
-                    return partialContent != null ? partialContent.trim() : "";
+                    return msgObj.getString("content") != null ? msgObj.getString("content").trim() : "";
                 }
                 JSONObject msgObj = choice0.getJSONObject("message");
                 String modelContent = msgObj.getString("content");
@@ -922,10 +980,7 @@ public class FilmReviewMain {
             if (c == openChar) depth++;
             else if (c == closeChar) {
                 depth--;
-                if (depth == 0) {
-                    endIdx = i;
-                    break;
-                }
+                if (depth == 0) { endIdx = i; break; }
             }
         }
         if (endIdx == -1) {
