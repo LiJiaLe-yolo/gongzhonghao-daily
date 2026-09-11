@@ -1080,14 +1080,45 @@ public class FilmReviewMain {
         if (jsonStr == null || jsonStr.isBlank()) {
             throw new RuntimeException("JSON数组字符串为空");
         }
+        
+        // 1. 尝试直接解析为JSONArray (标准情况)
         try {
             return JSON.parseArray(jsonStr);
         } catch (Exception e1) {
-            try {
-                return JSON.parseArray(jsonStr, JSONReader.Feature.IgnoreCheckClose);
-            } catch (Exception e2) {
-                throw new RuntimeException("JSON数组解析彻底失败: " + e2.getMessage(), e2);
+            // 忽略，继续尝试下一步
+        }
+        
+        // 2. 尝试解析为JSONObject，并提取其中的JSONArray，或者将单个Object包装为Array (应对 json_object 模式)
+        try {
+            JSONObject obj = JSON.parseObject(jsonStr, JSONReader.Feature.IgnoreCheckClose);
+            if (obj != null) {
+                // 情况 A: 模型将数组包裹在了对象中，例如 {"result": [ {...}, {...} ]}
+                for (Object val : obj.values()) {
+                    if (val instanceof JSONArray) {
+                        JSONArray arr = (JSONArray) val;
+                        // 确保提取到的是对象数组，而不是普通的字符串数组
+                        if (!arr.isEmpty() && arr.get(0) instanceof JSONObject) {
+                            return arr;
+                        }
+                    }
+                }
+                
+                // 情况 B: 模型没有返回数组，而是直接返回了单个候选对象 {"filmName": "...", "pool": "..."}
+                if (obj.containsKey("filmName") || obj.containsKey("title") || obj.containsKey("id")) {
+                    JSONArray arr = new JSONArray();
+                    arr.add(obj); // 将单个对象包装成数组返回
+                    return arr;
+                }
             }
+        } catch (Exception ex) {
+            // 忽略，继续尝试下一步
+        }
+
+        // 3. 最后尝试使用容错模式(忽略闭合检查)解析JSONArray
+        try {
+            return JSON.parseArray(jsonStr, JSONReader.Feature.IgnoreCheckClose);
+        } catch (Exception e2) {
+            throw new RuntimeException("JSON数组解析彻底失败: " + e2.getMessage(), e2);
         }
     }
 
