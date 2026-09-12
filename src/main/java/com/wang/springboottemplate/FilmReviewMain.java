@@ -688,48 +688,45 @@ public class FilmReviewMain {
         return false;
     }
 
-    private static ReviewResult generateReview(String movieName, String tmdbOverview) throws Exception {
+        private static ReviewResult generateReview(String movieName, String tmdbOverview) throws Exception {
         int emptyCount = 0;
         String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace("“", "\"").replace("”", "\"");
         boolean weakOverview = safeOverview.length() < OVERVIEW_WEAK_THRESHOLD;
         System.out.printf("\n✍️ [生成器] 简介长度：%d，薄弱=%b\n", safeOverview.length(), weakOverview);
+
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             System.out.printf("\n🔄 [影评生成] 第 %d/%d 轮\n", i + 1, ARTICLE_MAX_RETRY);
-            String prompt;
-           boolean weakOverview = safeOverview.length() < OVERVIEW_WEAK_THRESHOLD;
-    System.out.printf("\n✍️ [生成器] 简介长度：%d，薄弱=%b\n", safeOverview.length(), weakOverview);
-    
-    for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
-        System.out.printf("\n🔄 [影评生成] 第 %d/%d 轮\n", i + 1, ARTICLE_MAX_RETRY);
-        
-        // ================= 插入开始 =================
-        // 1. 随机选一个人设
-        String randomAngle = WRITING_ANGLES[ThreadLocalRandom.current().nextInt(WRITING_ANGLES.length)];
-        // 2. 组合 System Prompt (人设 + 强制增量指令)
-        String systemPrompt = "你是一个资深影评人。" + randomAngle + "\n\n" + SOCIAL_CONTEXT_INJECTION;
-        // ================= 插入结束 =================
 
-        String prompt;
-        int currentMaxToken;
-        double currentTemp;
-        if (weakOverview) {
-            prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
-            currentMaxToken = MAX_TOKENS_EXPAND;
-            currentTemp = TEMPERATURE_EXPAND;
-        } else {
-            prompt = i < 2 ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag) : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
-            currentMaxToken = MAX_TOKENS_NORMAL;
-            currentTemp = TEMPERATURE_NORMAL;
-        }
-        
-        String contentRaw;
+            // ================= 随机写作视角 + 强制增量信息注入 =================
+            String randomAngle = WRITING_ANGLES[ThreadLocalRandom.current().nextInt(WRITING_ANGLES.length)];
+            String systemPrompt = "你是一个资深影评人。" + randomAngle + "\n\n" + SOCIAL_CONTEXT_INJECTION;
+            // ================================================================
+
+            String prompt;
+            int currentMaxToken;
+            double currentTemp;
+            if (weakOverview) {
+                prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
+                currentMaxToken = MAX_TOKENS_EXPAND;
+                currentTemp = TEMPERATURE_EXPAND;
+            } else {
+                prompt = i < 2
+                        ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag)
+                        : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
+                currentMaxToken = MAX_TOKENS_NORMAL;
+                currentTemp = TEMPERATURE_NORMAL;
+            }
+
+            String contentRaw;
             try {
-                contentRaw = callDeepSeek(null, prompt, currentMaxToken, currentTemp);
+                // ✅ 已修复：传入 systemPrompt 而非 null
+                contentRaw = callDeepSeek(systemPrompt, prompt, currentMaxToken, currentTemp);
             } catch (IOException ex) {
                 System.err.printf("  ❌ 网络异常: %s\n", ex.getMessage());
                 sleepRandom(1200, 2500);
                 continue;
             }
+
             contentRaw = extractJsonSafely(contentRaw);
             if (contentRaw.isBlank()) {
                 emptyCount++;
@@ -737,6 +734,7 @@ public class FilmReviewMain {
                 sleepRandom(1200, 2500);
                 continue;
             }
+
             JSONObject jo;
             try {
                 jo = parseJsonLoose(contentRaw);
@@ -748,6 +746,7 @@ public class FilmReviewMain {
                     continue;
                 }
             }
+
             String article = jo.getString("article");
             JSONArray titleArr = jo.getJSONArray("titles");
             String centralArg = jo.getString("centralArgument");
@@ -756,10 +755,12 @@ public class FilmReviewMain {
                 sleepRandom(1200, 2500);
                 continue;
             }
+
             article = cleanAiArticle(article);
             article = removeInteractionCTA(article);
             int len = article.length();
             System.out.printf("  📏 稿件长度: %d | 目标: [%d~%d]\n", len, ARTICLE_TARGET_MIN, ARTICLE_TARGET_MAX);
+
             if (len >= ARTICLE_TARGET_MIN && len <= ARTICLE_TARGET_MAX) {
                 ReviewResult result = new ReviewResult();
                 result.centralArgument = centralArg;
@@ -770,6 +771,8 @@ public class FilmReviewMain {
             }
             sleepRandom(1200, 2500);
         }
+
+        // ==================== 保底扩写逻辑 ====================
         System.out.println("\n🚨 [保底] 常规重试耗尽，强制扩写...");
         String finalPrompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
         String finalRaw = callDeepSeek(null, finalPrompt, MAX_TOKENS_EXPAND, TEMPERATURE_EXPAND);
@@ -777,6 +780,7 @@ public class FilmReviewMain {
         if (finalRaw == null || finalRaw.isBlank()) {
             throw new MovieCannotHandleException("保底扩写依然返回空内容或JSON未闭合");
         }
+
         JSONObject fjo;
         try {
             fjo = parseJsonLoose(finalRaw);
@@ -786,11 +790,13 @@ public class FilmReviewMain {
                 throw new MovieCannotHandleException("保底扩写JSON解析彻底失败: " + e.getMessage());
             }
         }
+
         ReviewResult finalRes = new ReviewResult();
         finalRes.centralArgument = fjo.getString("centralArgument");
         finalRes.titles = fjo.getJSONArray("titles").toList(String.class);
         finalRes.article = cleanAiArticle(fjo.getString("article"));
         finalRes.article = removeInteractionCTA(finalRes.article);
+
         if (finalRes.article.length() < ARTICLE_TARGET_MIN) {
             StringBuilder sb = new StringBuilder(finalRes.article);
             while (sb.length() < ARTICLE_TARGET_MIN) {
