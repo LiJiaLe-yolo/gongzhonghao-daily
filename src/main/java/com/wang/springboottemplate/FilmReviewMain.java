@@ -46,6 +46,22 @@ public class FilmReviewMain {
 
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
 
+      // ====================== 新增：随机写作视角/人格 ======================
+    private static final String[] WRITING_ANGLES = {
+            "【感性叙事者】：以第一人称视角，像和老朋友深夜聊天一样。语气要感性、走心，少用排比句。侧重于描写看完电影后的情绪波动和内心独白。",
+            "【犀利观察家】：以冷峻的社会观察者视角。语气犀利、直接，直击痛点。不要温吞的感悟，要像手术刀一样剖析人性弱点或社会潜规则。",
+            "【心理分析师】：以心理学/社会学分析视角。语气客观、专业但通俗。侧重于剖析人物潜意识、原生家庭创伤或群体心理，多用“投射”、“防御机制”等概念（需解释）。",
+            "【怀旧散文家】：以怀旧、文艺的视角。注重氛围描写，语气温柔、缓慢。将电影情节与逝去的时光、老物件、旧记忆联系起来。",
+            "【毒舌影评人】：以挑剔、幽默的视角。可以适度吐槽剧情逻辑，用幽默化解沉重，但在吐槽背后要有对人性的深刻洞察。"
+    };
+
+    // ====================== 新增：强制增量信息指令 ======================
+    private static final String SOCIAL_CONTEXT_INJECTION = 
+            "【关键约束：强制增量信息】\n" +
+            "1. 严禁只聊电影剧情！必须在主体解读部分，将电影情节与【当下的社会热点、职场现状、原生家庭痛点】或【其他经典高分电影】进行横向对比。\n" +
+            "2. 必须包含至少一个【非电影本身】的现实案例或社会现象描述（例如：提到孤独，要联系现代都市年轻人的空巢现象；提到奋斗，要联系当下的内卷环境）。\n" +
+            "3. 增加信息密度，让读者觉得不仅看了一部电影，还看懂了一个社会切面。";
+    
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态", "社会讽刺、现实隐喻", "底层生活、人间真实", "时代缩影、众生皆苦",
             "市井烟火、平凡众生", "阶层现实、生活真相", "人性深度、善恶博弈", "自我救赎、与己和解",
@@ -680,20 +696,33 @@ public class FilmReviewMain {
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             System.out.printf("\n🔄 [影评生成] 第 %d/%d 轮\n", i + 1, ARTICLE_MAX_RETRY);
             String prompt;
-            int currentMaxToken;
-            double currentTemp;
-            if (weakOverview) {
-                prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
-                currentMaxToken = MAX_TOKENS_EXPAND;
-                currentTemp = TEMPERATURE_EXPAND;
-            } else {
-                prompt = i < 2
-                        ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag)
-                        : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
-                currentMaxToken = MAX_TOKENS_NORMAL;
-                currentTemp = TEMPERATURE_NORMAL;
-            }
-            String contentRaw;
+           boolean weakOverview = safeOverview.length() < OVERVIEW_WEAK_THRESHOLD;
+    System.out.printf("\n✍️ [生成器] 简介长度：%d，薄弱=%b\n", safeOverview.length(), weakOverview);
+    
+    for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
+        System.out.printf("\n🔄 [影评生成] 第 %d/%d 轮\n", i + 1, ARTICLE_MAX_RETRY);
+        
+        // ================= 插入开始 =================
+        // 1. 随机选一个人设
+        String randomAngle = WRITING_ANGLES[ThreadLocalRandom.current().nextInt(WRITING_ANGLES.length)];
+        // 2. 组合 System Prompt (人设 + 强制增量指令)
+        String systemPrompt = "你是一个资深影评人。" + randomAngle + "\n\n" + SOCIAL_CONTEXT_INJECTION;
+        // ================= 插入结束 =================
+
+        String prompt;
+        int currentMaxToken;
+        double currentTemp;
+        if (weakOverview) {
+            prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
+            currentMaxToken = MAX_TOKENS_EXPAND;
+            currentTemp = TEMPERATURE_EXPAND;
+        } else {
+            prompt = i < 2 ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag) : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
+            currentMaxToken = MAX_TOKENS_NORMAL;
+            currentTemp = TEMPERATURE_NORMAL;
+        }
+        
+        String contentRaw;
             try {
                 contentRaw = callDeepSeek(null, prompt, currentMaxToken, currentTemp);
             } catch (IOException ex) {
@@ -1139,9 +1168,14 @@ public class FilmReviewMain {
         result = result.replaceAll("\\n{3,}", "\n\n");
         return result.trim();
     }
-
     private static String cleanAiArticle(String text) {
         if (text == null) return "";
+        // 1. 去除机械连接词
+        text = text.replaceAll("首先，|其次，|最后，|总的来说，|总而言之，|综上所述，", "");
+        // 2. 替换AI套话
+        text = text.replaceAll("这部电影告诉我们|这部影片揭示了", "它揭示了");
+        text = text.replaceAll("引人深思|发人深省|值得一看", "");
+        // 3. 原有的清洗规则保留
         text = text.replaceAll("【.*?】", "");
         text = text.replaceAll("\\n{3,}", "\n\n");
         text = text.replaceAll("从简介(里|中|来看|可以看出|得知)", "在影片中");
