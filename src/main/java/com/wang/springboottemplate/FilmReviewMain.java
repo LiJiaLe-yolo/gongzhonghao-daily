@@ -46,19 +46,41 @@ public class FilmReviewMain {
 
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
 
+    // [反同质化] 扩展写作角度至8个，覆盖更多差异化视角
     private static final String[] WRITING_ANGLES = {
-            "【感性叙事者】：以第一人称视角，像和老朋友深夜聊天一样。语气要感性、走心，少用排比句。侧重于描写看完电影后的情绪波动和内心独白。",
-            "【犀利观察家】：以冷峻的社会观察者视角。语气犀利、直接，直击痛点。不要温吞的感悟，要像手术刀一样剖析人性弱点或社会潜规则。",
-            "【心理分析师】：以心理学/社会学分析视角。语气客观、专业但通俗。侧重于剖析人物潜意识、原生家庭创伤或群体心理，多用“投射”、“防御机制”等概念（需解释）。",
-            "【怀旧散文家】：以怀旧、文艺的视角。注重氛围描写，语气温柔、缓慢。将电影情节与逝去的时光、老物件、旧记忆联系起来。",
-            "【毒舌影评人】：以挑剔、幽默的视角。可以适度吐槽剧情逻辑，用幽默化解沉重，但在吐槽背后要有对人性的深刻洞察。"
+            "【感性叙事者】：以第一人称视角，像和老朋友深夜聊天一样。语气要感性、走心，少用排比句。侧重于描写看完电影后的情绪波动和内心独白。允许出现不完美的、碎片化的个人感受。",
+            "【犀利观察家】：以冷峻的社会观察者视角。语气犀利、直接，直击痛点。不要温吞的感悟，要像手术刀一样剖析人性弱点或社会潜规则。敢于提出冒犯性但真实的观点。",
+            "【心理分析师】：以心理学/社会学分析视角。语气客观、专业但通俗。侧重于剖析人物潜意识、原生家庭创伤或群体心理，多用"投射""防御机制""依恋模式"等概念（需用生活化语言解释）。",
+            "【怀旧散文家】：以怀旧、文艺的视角。注重氛围描写，语气温柔、缓慢。将电影情节与逝去的时光、老物件、旧记忆联系起来。多用通感和具象细节，避免抽象抒情。",
+            "【毒舌影评人】：以挑剔、幽默的视角。可以适度吐槽剧情逻辑，用幽默化解沉重，但在吐槽背后要有对人性的深刻洞察。讽刺要精准而非刻薄。",
+            "【跨学科解读者】：用经济学/哲学/传播学等非影视学科框架解读电影。例如用'沉没成本'分析角色执念，用'景观社会'解读视觉符号。让读者获得观影之外的知识增量。",
+            "【城市人类学家】：聚焦电影中呈现的空间、阶层、地域文化差异。把电影当作一份田野调查样本，解读其中隐藏的城市生存法则、社区关系变迁或城乡张力。",
+            "【代际对话者】：以两代人甚至三代人的认知差异为切入点。探讨同一件事在不同年龄段的截然不同的理解，呈现代沟背后的时代结构性变化，而非简单评判对错。"
     };
 
-    private static final String SOCIAL_CONTEXT_INJECTION =
-            "【关键约束：强制增量信息】\n" +
-                    "1. 严禁只聊电影剧情！必须在主体解读部分，将电影情节与【当下的社会热点、职场现状、原生家庭痛点】或【其他经典高分电影】进行横向对比。\n" +
-                    "2. 必须包含至少一个【非电影本身】的现实案例或社会现象描述（例如：提到孤独，要联系现代都市年轻人的空巢现象；提到奋斗，要联系当下的内卷环境）。\n" +
-                    "3. 增加信息密度，让读者觉得不仅看了一部电影，还看懂了一个社会切面。";
+    // [反同质化] 动态社会语境池，每次随机组合，避免固定模板导致的同质化
+    private static final String[] SOCIAL_CONTEXT_POOL = {
+            "将电影核心矛盾与【当下职场中的隐性PUA与自我价值感缺失】进行对照分析",
+            "将电影情感困境与【社交媒体时代的表演型人格与真实孤独感】进行横向关联",
+            "将电影人物抉择与【消费主义裹挟下的身份焦虑与物化倾向】进行深度绑定",
+            "将电影家庭冲突与【东亚家庭中未被言说的情感债务与边界感缺失】进行互文解读",
+            "将电影命运轨迹与【小镇青年进城后的文化撕裂与归属感悬置】进行现实映射",
+            "将电影道德困境与【算法推荐时代的信息茧房与认知窄化】进行类比思辨",
+            "将电影亲密关系与【原子化社会中人际连接的脆弱性与重建可能】进行社会学审视",
+            "将电影成长叙事与【教育内卷背景下被压缩的自我探索空间】进行代际对比",
+            "将电影权力结构与【组织中的沉默螺旋与服从性测试】进行管理学交叉分析",
+            "将电影生死命题与【老龄化社会中照护伦理的崩塌与重构】进行现实关照"
+    };
+
+    // [反同质化] 系统级防同质化约束，注入每次请求
+    private static final String ANTI_HOMOGENEITY_INJECTION =
+            "\n\n🔴【反同质化铁律·违反则输出作废】\n" +
+                    "1. 禁止使用以下AI高频套话句式：'在这个快节奏的时代''不禁让人深思''值得我们每个人反思''在光影交错中''银幕内外''影片如同一面镜子''引发了广泛共鸣''触动人心最柔软的地方'。\n" +
+                    "2. 每篇文章必须包含至少一个【具体的、非通用的现实案例】：可以是某条新闻、某个身边人的真实故事、某组数据、某个具体地名/品牌/现象名称。禁止只用'有些人''很多人''我们'等泛指。\n" +
+                    "3. 中心论点必须是【反常识或细分切口】，禁止'珍惜当下''勇敢追梦''爱与和解'等万能主题。如果选题本身常见，必须找到至少一个前人未写的独特解读维度。\n" +
+                    "4. 行文节奏必须有变化：长短句交替，偶尔使用不完整句、口语化插入语、括号补充说明。禁止全文匀速平稳的'正确废话'节奏。\n" +
+                    "5. 至少有一处【作者个人的不确定性表达】：如'我不确定这是否准确''也许我的理解是偏颇的''这个问题我自己也没想明白'。真人写作不会永远笃定。\n" +
+                    "6. 禁止段落开头使用'首先/其次/最后/此外/值得注意的是'等机械连接词。用内容本身的逻辑衔接代替形式连接。\n";
 
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态", "社会讽刺、现实隐喻", "底层生活、人间真实", "时代缩影、众生皆苦",
@@ -100,6 +122,7 @@ public class FilmReviewMain {
             4. 输出JSON数组，每一条字段：
             {"filmName":"影片中文名字","pool":"A池|B池","wechatIndexTrend":"上升|平稳|下降","coreIdea":"简要核心写作切入点","scoreTotal":"总分0~4"}
             5. 重要限制：输出仅为AI推演初筛候选，**后续必须人工打开微信指数小程序复核热度**。
+            6. 【反同质化】coreIdea必须是具体、细分、反常识的切入点，禁止"人性的复杂""爱的力量"等万能表述。
             """;
 
     private static final String MAIN_REVIEW_PROMPT_TPL =
@@ -109,42 +132,42 @@ public class FilmReviewMain {
                     "\n" +
                     "🔴【最高优先级·防幻觉与视角伪装铁律】\n" +
                     "1. 所有剧情、人物、细节只能基于下方提供的【影片核心事实参考】。\n" +
-                    "2. ⚠️视角伪装：你必须完全代入“刚看完这部电影的资深影迷”视角！将下方参考信息内化为你的“观影记忆”。\n" +
-                    "3. 🚫绝对禁止在正文中出现“简介”、“简介里”、“简介中”、“剧情简介”、“官方设定”、“素材”等暴露数据来源的词汇！\n" +
+                    "2. ⚠️视角伪装：你必须完全代入"刚看完这部电影的资深影迷"视角！将下方参考信息内化为你的"观影记忆"。\n" +
+                    "3. 🚫绝对禁止在正文中出现"简介""简介里""简介中""剧情简介""官方设定""素材"等暴露数据来源的词汇！\n" +
                     "影片核心事实参考：\n\"%s\"\n" +
                     "严格区分：影片客观事实 / 个人主观观点。禁止虚构导演创作意图。\n" +
                     "\n" +
                     "📋【完整工作流程】\n" +
-                    "Step1 提炼一句明确的中心论点。\n" +
-                    "Step2 产出3条公众号爆款标题，覆盖共鸣式、反差冲突式、提问钩子式。\n" +
-                    "Step3 设计开头钩子：100字以内，情绪/悬念切入。\n" +
+                    "Step1 提炼一句明确的、反常识的中心论点（禁止万能主题）。\n" +
+                    "Step2 产出3条公众号爆款标题，覆盖共鸣式、反差冲突式、提问钩子式。标题必须包含具体信息点，禁止空洞悬念。\n" +
+                    "Step3 设计开头钩子：100字以内，从一个具体场景/细节/问题切入，禁止宏大开场。\n" +
                     "Step4 正文四段式骨架：\n" +
                     "①开篇入题抛出中心观点\n" +
                     "②精简剧情铺垫控制200字以内\n" +
-                    "③主体解读（占全文60%%篇幅），拆分3‑4个解读角度；每一个观点绑定影片真实细节；结尾落地普通人现实感悟\n" +
+                    "③主体解读（占全文60%%篇幅），拆分3‑4个解读角度；每一个观点绑定影片真实细节+一个具体现实案例；结尾落地普通人现实感悟\n" +
                     "④结尾升华，输出可摘抄金句；结尾使用一句有力的反问句引发读者内心思考\n" +
-                    "Step5 去AI味润色：避免机械排比；全文至少包含2处反问句；拒绝AI套话。\n" +
+                    "Step5 去AI味润色：避免机械排比；全文至少包含2处反问句；拒绝AI套话；加入至少一处个人不确定性表达。\n" +
                     "Step6 公众号排版约束：每段不宜过长；必须将中心论点、核心金句使用 **加粗** 语法高亮。\n" +
                     "\n" +
-                    "🚫合规铁律：严禁出现“评论区聊聊”“欢迎留言”等引导互动套话。\n" +
+                    "🚫合规铁律：严禁出现"评论区聊聊""欢迎留言"等引导互动套话。\n" +
                     "\n" +
                     "✅【输出JSON强制格式】\n" +
                     "{\"centralArgument\":\"一句话中心论点\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整公众号markdown正文\"}\n" +
                     "\n" +
                     "为电影《%s》撰写公众号影评，风格标签【%s】。\n" +
+                    "本次社会语境锚点：%s\n" +
                     "【硬性字数】正文汉字严格1800‑2500。⚠️确保JSON完整闭合！";
 
     private static final String FALLBACK_REVIEW_PROMPT_TPL =
             "【硬性强制规则】\n" +
                     "角色：公众号影评撰稿人。\n" +
-                    "🔴最高约束：所有剧情细节只能基于下方【影片核心事实参考】，严禁编造。代入“看过全片的影迷”视角。禁止出现“简介”等暴露数据来源词汇。\n" +
+                    "🔴最高约束：所有剧情细节只能基于下方【影片核心事实参考】，严禁编造。代入"看过全片的影迷"视角。禁止出现"简介"等暴露数据来源词汇。\n" +
                     "影片核心事实参考：\n\"%s\"\n" +
-                    "写作逻辑：少复述剧情，多输出人性感悟现实共鸣；全文至少2个反问；结尾反问引发思考。\n" +
-                    "规范：1.一句中心论点+3条钩子标题；2.开篇抓情绪，剧情铺垫≤150字；3.主体3‑4个解读角度落地普通人生活；4.结尾金句+反问；5.核心句**加粗**；6.字数1800‑2500；7.禁止引导评论区互动。\n" +
+                    "写作逻辑：少复述剧情，多输出人性感悟现实共鸣；全文至少2个反问；结尾反问引发思考；加入个人不确定性表达。\n" +
+                    "规范：1.一句反常识中心论点+3条含具体信息点的钩子标题；2.开篇抓情绪，剧情铺垫≤150字；3.主体3‑4个解读角度，每个绑定具体现实案例；4.结尾金句+反问；5.核心句**加粗**；6.字数1800‑2500；7.禁止引导评论区互动。\n" +
                     "✅输出JSON：{\"centralArgument\":\"中心论点\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"正文markdown\"}\n" +
-                    "电影《%s》，风格标签【%s】。⚠️确保JSON完整闭合！";
+                    "电影《%s》，风格标签【%s】。社会语境锚点：%s。⚠️确保JSON完整闭合！";
 
-    // ====================== 重写：针对薄弱简介的扩写专用提示词 ======================
     private static final String EXPAND_REVIEW_PROMPT_TPL =
             "【最高优先级指令：素材薄弱时的扩写铁律】\n" +
                     "当前影片简介仅%d字，信息极度稀缺。你必须通过【现实延伸】而非【编造剧情】来达成1800-2500字。\n" +
@@ -158,19 +181,19 @@ public class FilmReviewMain {
                     "①开篇（200字）：从一个具体的【当代人普遍困境/情绪痛点】切入，自然引出本片作为案例。不要从电影开场写起。\n" +
                     "②事实锚点（300字）：仅用参考素材中的关键情节作为论证支点，高度压缩，绝不展开复述。\n" +
                     "③现实深潜（1000-1400字）：这是全文主体！围绕中心论点，拆出3-4个现实维度逐一展开。每个维度必须包含：\n" +
-                    "   · 一个具体的社会现象/新闻案例/身边人故事（非电影内容）\n" +
+                    "   · 一个具体的社会现象/新闻案例/身边人故事（非电影内容，必须有具体名称/数据/地点）\n" +
                     "   · 与电影事实锚点的对照分析\n" +
                     "   · 对普通人生活的具体启示或反思\n" +
                     "   · 至少一处反问句引发读者自省\n" +
                     "④结尾（200字）：金句收束+有力反问。不回扣剧情，只回扣现实。\n" +
                     "\n" +
-                    "⚠️视角伪装：你必须代入“看过全片的资深影迷”视角，将参考信息内化为观影记忆。禁止出现“简介”“素材”等词。\n" +
-                    "🚫禁止引导评论区互动。核心句**加粗**。\n" +
+                    "⚠️视角伪装：你必须代入"看过全片的资深影迷"视角，将参考信息内化为观影记忆。禁止出现"简介""素材"等词。\n" +
+                    "🚫禁止引导评论区互动。核心句**加粗**。加入至少一处个人不确定性表达。\n" +
                     "\n" +
                     "✅仅输出JSON：{\"centralArgument\":\"一句话中心论点\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"markdown正文\"}\n" +
                     "\n" +
                     "影片核心事实参考：\n\"%s\"\n" +
-                    "电影《%s》，风格标签【%s】。\n" +
+                    "电影《%s》，风格标签【%s】。社会语境锚点：%s。\n" +
                     "【硬性字数】正文汉字严格1800‑2500。⚠️确保JSON完整闭合！";
 
     private static final OkHttpClient HTTP_CLIENT = new OkHttpClient.Builder()
@@ -222,16 +245,35 @@ public class FilmReviewMain {
         try { return Integer.parseInt(value.trim()); } catch (Exception e) { return defaultValue; }
     }
 
+    // ====================== 模糊去重工具 ======================
+
+    private static String normalizeMovieName(String name) {
+        if (name == null) return "";
+        return name.replaceAll("[\\s\\p{Punct}《》【】()（）·・:：]", "").toLowerCase().trim();
+    }
+
+    private static boolean isMovieUsed(String name, List<String> usedList) {
+        if (name == null || name.isBlank()) return true;
+        String normalized = normalizeMovieName(name);
+        for (String used : usedList) {
+            if (normalizeMovieName(used).equals(normalized)) return true;
+        }
+        return false;
+    }
+
+    // ====================== 主流程 ======================
+
     public static void main(String[] args) {
+        List<String> usedMovies = new ArrayList<>();
+        String pickedMovie = null;
         try {
             System.out.println("\n" + "=".repeat(60));
             System.out.println("🚀 影评生成任务启动");
             System.out.println("=".repeat(60));
             checkEnv();
-            List<String> usedMovies = loadUsedFromGist();
+            usedMovies = loadUsedFromGist();
             System.out.println("📊 已处理电影数量：" + usedMovies.size());
             ReviewResult reviewResult = null;
-            String pickedMovie = null;
             for (int attempt = 0; attempt < PICK_MAX_RETRY; attempt++) {
                 currentTmdbMovieInfo = null;
                 currentFilmTag = "";
@@ -248,7 +290,7 @@ public class FilmReviewMain {
                     break;
                 } catch (MovieCannotHandleException e) {
                     System.err.printf("❌ 《%s》生成失败: %s\n", pickedMovie, e.getMessage());
-                    usedMovies.add(pickedMovie);
+                    if (!isMovieUsed(pickedMovie, usedMovies)) usedMovies.add(pickedMovie);
                 }
             }
             if (reviewResult == null) throw new Exception("多次选片仍无法产出合格影评");
@@ -256,12 +298,21 @@ public class FilmReviewMain {
             System.out.println("\n✅ 生成成功！长度=" + len);
             System.out.println("💡 " + reviewResult.centralArgument);
             sendFeishuCard(pickedMovie, reviewResult, len);
-            usedMovies.add(pickedMovie);
-            saveUsedToGist(usedMovies);
+            if (!isMovieUsed(pickedMovie, usedMovies)) usedMovies.add(pickedMovie);
             System.out.println("🎉 任务结束");
         } catch (Exception e) {
             System.err.println("\n💥 异常：" + e.getMessage());
             e.printStackTrace();
+            if (pickedMovie != null && !isMovieUsed(pickedMovie, usedMovies)) {
+                usedMovies.add(pickedMovie);
+                System.out.println("ℹ️ 失败影片已加入去重列表: " + pickedMovie);
+            }
+        } finally {
+            if (!usedMovies.isEmpty()) {
+                try { saveUsedToGist(usedMovies); } catch (Exception e) {
+                    System.err.println("⚠️ Gist保存失败: " + e.getMessage());
+                }
+            }
         }
     }
 
@@ -278,7 +329,7 @@ public class FilmReviewMain {
             List<SkillFilmCandidate> skillCandidates = aiGetClassicMovieNamesByTag(currentFilmTag);
             for (SkillFilmCandidate cand : skillCandidates) {
                 if ("下降".equals(cand.wechatIndexTrend)) continue;
-                if (isBlackMovie(cand.filmName) || used.contains(cand.filmName)) continue;
+                if (isBlackMovie(cand.filmName) || isMovieUsed(cand.filmName, used)) continue;
                 TmdbMovieInfo info = tmdbSearchMovie(cand.filmName);
                 if (info == null) continue;
                 boolean isHorror = info.genres != null && info.genres.stream().anyMatch(g -> g.id == GENRE_HORROR || g.id == GENRE_THRILLER);
@@ -296,7 +347,7 @@ public class FilmReviewMain {
                 for (TmdbMovieInfo info : candidates) {
                     String t = info.title != null ? info.title : info.originalTitle;
                     boolean horror = info.genres != null && info.genres.stream().anyMatch(g -> g.id == GENRE_HORROR || g.id == GENRE_THRILLER);
-                    if (!isBlackMovie(t) && !used.contains(t) && !horror) filtered.add(info);
+                    if (!isBlackMovie(t) && !isMovieUsed(t, used) && !horror) filtered.add(info);
                 }
                 if (!filtered.isEmpty()) {
                     SkillFilmCandidate sel = aiSelectBestFilm(filtered);
@@ -312,9 +363,10 @@ public class FilmReviewMain {
                     }
                 }
             }
-            List<SkillFilmCandidate> aiPool = aiGenerateTaggedMoviePool();
+            // [修复] 兜底池传入已用列表
+            List<SkillFilmCandidate> aiPool = aiGenerateTaggedMoviePool(used);
             for (SkillFilmCandidate cand : aiPool) {
-                if (!isBlackMovie(cand.filmName) && !used.contains(cand.filmName)) {
+                if (!isBlackMovie(cand.filmName) && !isMovieUsed(cand.filmName, used)) {
                     currentTmdbMovieInfo = null;
                     currentPredictWechatTrend = cand.wechatIndexTrend;
                     return cand.filmName;
@@ -395,7 +447,7 @@ public class FilmReviewMain {
     }
 
     private static List<SkillFilmCandidate> aiGetClassicMovieNamesByTag(String tag) throws IOException {
-        String prompt = "根据风格标签【" + tag + "】输出JSON数组（5-8条），每条含filmName/pool/wechatIndexTrend/coreIdea/scoreTotal。真实高分电影，禁恐怖惊悚。";
+        String prompt = "根据风格标签【" + tag + "】输出JSON数组（5-8条），每条含filmName/pool/wechatIndexTrend/coreIdea/scoreTotal。真实高分电影，禁恐怖惊悚。coreIdea必须是具体细分切口，禁止万能表述。";
         String resp = extractJsonSafely(callDeepSeek(SKILL_SYSTEM_PROMPT, prompt, MAX_TOKENS_NORMAL, TEMPERATURE_NORMAL));
         List<SkillFilmCandidate> list = new ArrayList<>();
         try {
@@ -414,8 +466,15 @@ public class FilmReviewMain {
         return list;
     }
 
-    private static List<SkillFilmCandidate> aiGenerateTaggedMoviePool() throws IOException {
-        String prompt = "根据标签【" + currentFilmTag + "】输出JSON数组（5条），含filmName/pool/wechatIndexTrend/coreIdea/scoreTotal。真实高分，禁恐怖。";
+    // [修复] 接收已用列表参数，注入prompt防止AI重复推荐
+    private static List<SkillFilmCandidate> aiGenerateTaggedMoviePool(List<String> usedMovies) throws IOException {
+        String usedHint = "";
+        if (!usedMovies.isEmpty()) {
+            int from = Math.max(0, usedMovies.size() - 50);
+            List<String> recent = usedMovies.subList(from, usedMovies.size());
+            usedHint = "\n⚠️以下电影已写过，严禁重复推荐：" + String.join("、", recent);
+        }
+        String prompt = "根据标签【" + currentFilmTag + "】输出JSON数组（5条），含filmName/pool/wechatIndexTrend/coreIdea/scoreTotal。真实高分，禁恐怖。coreIdea必须是具体细分切口。" + usedHint;
         String resp = extractJsonSafely(callDeepSeek(SKILL_SYSTEM_PROMPT, prompt, MAX_TOKENS_NORMAL, TEMPERATURE_EXPAND));
         List<SkillFilmCandidate> list = new ArrayList<>();
         try {
@@ -491,29 +550,35 @@ public class FilmReviewMain {
         return false;
     }
 
+    // [反同质化] 随机选取社会语境锚点
+    private static String pickSocialContext() {
+        return SOCIAL_CONTEXT_POOL[ThreadLocalRandom.current().nextInt(SOCIAL_CONTEXT_POOL.length)];
+    }
+
     private static ReviewResult generateReview(String movieName, String tmdbOverview) throws Exception {
         int emptyCount = 0;
-        String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace("“", "\"").replace("”", "\"");
+        String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace(""", "\"").replace(""", "\"");
         boolean weakOverview = safeOverview.length() < OVERVIEW_WEAK_THRESHOLD;
         System.out.printf("✍️ 简介%d字，薄弱=%b\n", safeOverview.length(), weakOverview);
 
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             System.out.printf("🔄 生成第%d/%d轮\n", i + 1, ARTICLE_MAX_RETRY);
             String randomAngle = WRITING_ANGLES[ThreadLocalRandom.current().nextInt(WRITING_ANGLES.length)];
-            String systemPrompt = "你是一个资深影评人。" + randomAngle + "\n\n" + SOCIAL_CONTEXT_INJECTION;
+            // [反同质化] 注入动态社会语境 + 反同质化约束
+            String socialContext = pickSocialContext();
+            String systemPrompt = "你是一个资深影评人。" + randomAngle + "\n\n" + ANTI_HOMOGENEITY_INJECTION;
 
             String prompt;
             int maxToken;
             double temp;
             if (weakOverview) {
-                // ✅ 关键修复：EXPAND模板第一个参数传入简介长度，供提示词感知素材薄弱程度
-                prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview.length(), safeOverview, movieName, currentFilmTag);
+                prompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview.length(), safeOverview, movieName, currentFilmTag, socialContext);
                 maxToken = MAX_TOKENS_EXPAND;
                 temp = TEMPERATURE_EXPAND;
             } else {
                 prompt = i < 2
-                        ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag)
-                        : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag);
+                        ? String.format(MAIN_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag, socialContext)
+                        : String.format(FALLBACK_REVIEW_PROMPT_TPL, safeOverview, movieName, currentFilmTag, socialContext);
                 maxToken = MAX_TOKENS_NORMAL;
                 temp = TEMPERATURE_NORMAL;
             }
@@ -545,6 +610,7 @@ public class FilmReviewMain {
             }
             article = cleanAiArticle(article);
             article = removeInteractionCTA(article);
+            article = deduplicateArticle(article);
             int len = article.length();
             System.out.printf("  📏 长度:%d | 目标:[%d~%d]\n", len, ARTICLE_TARGET_MIN, ARTICLE_TARGET_MAX);
             if (len >= ARTICLE_TARGET_MIN && len <= ARTICLE_TARGET_MAX) {
@@ -557,11 +623,11 @@ public class FilmReviewMain {
             sleepRandom(1200, 2500);
         }
 
-        // ✅ 关键修复：保底扩写也注入systemPrompt + 使用新的EXPAND模板
         System.out.println("🚨 保底扩写...");
         String finalAngle = WRITING_ANGLES[ThreadLocalRandom.current().nextInt(WRITING_ANGLES.length)];
-        String finalSysPrompt = "你是一个资深影评人。" + finalAngle + "\n\n" + SOCIAL_CONTEXT_INJECTION;
-        String finalPrompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview.length(), safeOverview, movieName, currentFilmTag);
+        String finalSocialContext = pickSocialContext();
+        String finalSysPrompt = "你是一个资深影评人。" + finalAngle + "\n\n" + ANTI_HOMOGENEITY_INJECTION;
+        String finalPrompt = String.format(EXPAND_REVIEW_PROMPT_TPL, safeOverview.length(), safeOverview, movieName, currentFilmTag, finalSocialContext);
         String finalRaw = extractJsonSafely(callDeepSeek(finalSysPrompt, finalPrompt, MAX_TOKENS_EXPAND, TEMPERATURE_EXPAND));
         if (finalRaw.isBlank()) throw new MovieCannotHandleException("保底扩写返回空");
         JSONObject fjo;
@@ -573,7 +639,7 @@ public class FilmReviewMain {
         res.centralArgument = fjo.getString("centralArgument");
         JSONArray ft = fjo.getJSONArray("titles");
         res.titles = ft != null ? ft.toList(String.class) : List.of(movieName, movieName + "解读", movieName + "影评");
-        res.article = removeInteractionCTA(cleanAiArticle(fjo.getString("article")));
+        res.article = deduplicateArticle(removeInteractionCTA(cleanAiArticle(fjo.getString("article"))));
         if (res.article == null) res.article = "";
         if (res.article.length() < ARTICLE_TARGET_MIN) {
             StringBuilder sb = new StringBuilder(res.article);
@@ -583,6 +649,20 @@ public class FilmReviewMain {
         }
         if (res.article.length() > ARTICLE_TARGET_MAX) res.article = res.article.substring(0, ARTICLE_TARGET_MAX);
         return res;
+    }
+
+    // [反同质化] 后处理：检测并弱化AI常见的重复段落模式
+    private static String deduplicateArticle(String article) {
+        if (article == null || article.isBlank()) return article;
+        // 移除AI喜欢重复使用的过渡段落模板
+        article = article.replaceAll("(?m)^\\s*这不仅仅是一部电影[，,].*$", "");
+        article = article.replaceAll("(?m)^\\s*或许[，,]这就是[人生|生活|成长|爱情]的[真谛|本质|真相][。].*$", "");
+        article = article.replaceAll("(?m)^\\s*当我们走出影院[，,].*$", "");
+        article = article.replaceAll("(?m)^\\s*回到现实[中来]?[，,].*$", "");
+        article = article.replaceAll("(?m)^\\s*在这个[喧嚣|浮躁|快节奏]的[时代|社会|世界][里中]?[，,].*$", "");
+        // 清理多余空行
+        article = article.replaceAll("\\n{3,}", "\n\n");
+        return article.trim();
     }
 
     private static void sendFeishuCard(String movieName, ReviewResult result, int articleLength) {
@@ -650,13 +730,28 @@ public class FilmReviewMain {
                 .addHeader("Authorization", "token " + GITHUB_PAT)
                 .addHeader("Accept", "application/vnd.github.v3+json").get().build();
         try (Response resp = HTTP_CLIENT.newCall(req).execute()) {
-            if (!resp.isSuccessful() || resp.body() == null) return new ArrayList<>();
+            if (!resp.isSuccessful()) {
+                System.err.println("⚠️ Gist读取失败 HTTP " + resp.code() + "，本次去重可能失效！");
+                return new ArrayList<>();
+            }
+            if (resp.body() == null) {
+                System.err.println("⚠️ Gist响应体为空，本次去重可能失效！");
+                return new ArrayList<>();
+            }
             JSONObject gj = JSON.parseObject(resp.body().string());
             JSONObject files = gj.getJSONObject("files");
-            if (files == null || !files.containsKey(GIST_FILENAME)) return new ArrayList<>();
+            if (files == null || !files.containsKey(GIST_FILENAME)) {
+                System.out.println("ℹ️ Gist中尚无历史记录文件，首次运行");
+                return new ArrayList<>();
+            }
             String c = files.getJSONObject(GIST_FILENAME).getString("content");
-            return (c == null || c.isBlank()) ? new ArrayList<>() : JSON.parseArray(c).toList(String.class);
-        } catch (Exception e) { return new ArrayList<>(); }
+            List<String> list = (c == null || c.isBlank()) ? new ArrayList<>() : JSON.parseArray(c).toList(String.class);
+            System.out.println("✅ Gist读取成功，已用片库=" + list.size() + "部");
+            return list;
+        } catch (Exception e) {
+            System.err.println("⚠️ Gist读取异常: " + e.getMessage() + "，本次去重可能失效！");
+            return new ArrayList<>();
+        }
     }
 
     private static void saveUsedToGist(List<String> used) throws IOException {
