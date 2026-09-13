@@ -46,19 +46,17 @@ public class FilmReviewMain {
 
     private static final String[] MOVIE_BLACKLIST_KEYWORD = {"鬼玩人", "鬼", "驱魔", "电锯", "惊魂", "恐怖", "惊悚"};
 
-    // [反同质化] 扩展写作角度至8个，覆盖更多差异化视角
     private static final String[] WRITING_ANGLES = {
             "【感性叙事者】：以第一人称视角，像和老朋友深夜聊天一样。语气要感性、走心，少用排比句。侧重于描写看完电影后的情绪波动和内心独白。允许出现不完美的、碎片化的个人感受。",
             "【犀利观察家】：以冷峻的社会观察者视角。语气犀利、直接，直击痛点。不要温吞的感悟，要像手术刀一样剖析人性弱点或社会潜规则。敢于提出冒犯性但真实的观点。",
-            "【心理分析师】：以心理学/社会学分析视角。语气客观、专业但通俗。侧重于剖析人物潜意识、原生家庭创伤或群体心理，多用"投射""防御机制""依恋模式"等概念（需用生活化语言解释）。",
+            "【心理分析师】：以心理学/社会学分析视角。语气客观、专业但通俗。侧重于剖析人物潜意识、原生家庭创伤或群体心理，多用投射、防御机制、依恋模式等概念（需用生活化语言解释）。",
             "【怀旧散文家】：以怀旧、文艺的视角。注重氛围描写，语气温柔、缓慢。将电影情节与逝去的时光、老物件、旧记忆联系起来。多用通感和具象细节，避免抽象抒情。",
             "【毒舌影评人】：以挑剔、幽默的视角。可以适度吐槽剧情逻辑，用幽默化解沉重，但在吐槽背后要有对人性的深刻洞察。讽刺要精准而非刻薄。",
-            "【跨学科解读者】：用经济学/哲学/传播学等非影视学科框架解读电影。例如用'沉没成本'分析角色执念，用'景观社会'解读视觉符号。让读者获得观影之外的知识增量。",
+            "【跨学科解读者】：用经济学/哲学/传播学等非影视学科框架解读电影。例如用沉没成本分析角色执念，用景观社会解读视觉符号。让读者获得观影之外的知识增量。",
             "【城市人类学家】：聚焦电影中呈现的空间、阶层、地域文化差异。把电影当作一份田野调查样本，解读其中隐藏的城市生存法则、社区关系变迁或城乡张力。",
             "【代际对话者】：以两代人甚至三代人的认知差异为切入点。探讨同一件事在不同年龄段的截然不同的理解，呈现代沟背后的时代结构性变化，而非简单评判对错。"
     };
 
-    // [反同质化] 动态社会语境池，每次随机组合，避免固定模板导致的同质化
     private static final String[] SOCIAL_CONTEXT_POOL = {
             "将电影核心矛盾与【当下职场中的隐性PUA与自我价值感缺失】进行对照分析",
             "将电影情感困境与【社交媒体时代的表演型人格与真实孤独感】进行横向关联",
@@ -72,15 +70,14 @@ public class FilmReviewMain {
             "将电影生死命题与【老龄化社会中照护伦理的崩塌与重构】进行现实关照"
     };
 
-    // [反同质化] 系统级防同质化约束，注入每次请求
     private static final String ANTI_HOMOGENEITY_INJECTION =
             "\n\n🔴【反同质化铁律·违反则输出作废】\n" +
-                    "1. 禁止使用以下AI高频套话句式：'在这个快节奏的时代''不禁让人深思''值得我们每个人反思''在光影交错中''银幕内外''影片如同一面镜子''引发了广泛共鸣''触动人心最柔软的地方'。\n" +
-                    "2. 每篇文章必须包含至少一个【具体的、非通用的现实案例】：可以是某条新闻、某个身边人的真实故事、某组数据、某个具体地名/品牌/现象名称。禁止只用'有些人''很多人''我们'等泛指。\n" +
-                    "3. 中心论点必须是【反常识或细分切口】，禁止'珍惜当下''勇敢追梦''爱与和解'等万能主题。如果选题本身常见，必须找到至少一个前人未写的独特解读维度。\n" +
-                    "4. 行文节奏必须有变化：长短句交替，偶尔使用不完整句、口语化插入语、括号补充说明。禁止全文匀速平稳的'正确废话'节奏。\n" +
-                    "5. 至少有一处【作者个人的不确定性表达】：如'我不确定这是否准确''也许我的理解是偏颇的''这个问题我自己也没想明白'。真人写作不会永远笃定。\n" +
-                    "6. 禁止段落开头使用'首先/其次/最后/此外/值得注意的是'等机械连接词。用内容本身的逻辑衔接代替形式连接。\n";
+                    "1. 禁止使用以下AI高频套话句式：在这个快节奏的时代、不禁让人深思、值得我们每个人反思、在光影交错中、银幕内外、影片如同一面镜子、引发了广泛共鸣、触动人心最柔软的地方。\n" +
+                    "2. 每篇文章必须包含至少一个【具体的、非通用的现实案例】：可以是某条新闻、某个身边人的真实故事、某组数据、某个具体地名/品牌/现象名称。禁止只用有些人、很多人、我们等泛指。\n" +
+                    "3. 中心论点必须是【反常识或细分切口】，禁止珍惜当下、勇敢追梦、爱与和解等万能主题。如果选题本身常见，必须找到至少一个前人未写的独特解读维度。\n" +
+                    "4. 行文节奏必须有变化：长短句交替，偶尔使用不完整句、口语化插入语、括号补充说明。禁止全文匀速平稳的正确废话节奏。\n" +
+                    "5. 至少有一处【作者个人的不确定性表达】：如我不确定这是否准确、也许我的理解是偏颇的、这个问题我自己也没想明白。真人写作不会永远笃定。\n" +
+                    "6. 禁止段落开头使用首先/其次/最后/此外/值得注意的是等机械连接词。用内容本身的逻辑衔接代替形式连接。\n";
 
     private static final String[] FILM_TAGS = {
             "现实扎心、人间百态", "社会讽刺、现实隐喻", "底层生活、人间真实", "时代缩影、众生皆苦",
@@ -94,6 +91,7 @@ public class FilmReviewMain {
             "平凡人生、万般值得", "生活感悟、人间烟火", "得失随缘、人生释然", "慢品人间、岁月温柔"
     };
 
+    // [修复] 文本块内的双引号全部替换为中文引号或去除，避免编译错误
     private static final String SKILL_SYSTEM_PROMPT = """
             你是公众号【幕尽】专属影视选题探测助理。
             账号定位：深度人性向影评公众号；核心目标最大化利用微信搜一搜、看一看免费公域流量；拒绝纯剧情复述，主打人性、欲望、家庭、遗憾、普通人困境。
@@ -109,7 +107,7 @@ public class FilmReviewMain {
             总分≤2 → B池｜粉丝向调剂选题，不优先冲流量
             
             ## 微信指数趋势预判
-            注意：你**无法访问微信指数真实接口，只能基于全网舆情、影片上映/二创翻红情况做推演预判**，最终必须由人工打开微信指数小程序核验真实数据。
+            注意：你无法访问微信指数真实接口，只能基于全网舆情、影片上映/二创翻红情况做推演预判，最终必须由人工打开微信指数小程序核验真实数据。
             枚举值三选一：
             -上升：近期全网讨论度走高
             -平稳：经典高分老片，长期稳定有搜索
@@ -120,9 +118,9 @@ public class FilmReviewMain {
             2. 禁止恐怖、惊悚、鬼怪类题材。
             3. 不要编造不存在的电影，片名必须真实公映。
             4. 输出JSON数组，每一条字段：
-            {"filmName":"影片中文名字","pool":"A池|B池","wechatIndexTrend":"上升|平稳|下降","coreIdea":"简要核心写作切入点","scoreTotal":"总分0~4"}
-            5. 重要限制：输出仅为AI推演初筛候选，**后续必须人工打开微信指数小程序复核热度**。
-            6. 【反同质化】coreIdea必须是具体、细分、反常识的切入点，禁止"人性的复杂""爱的力量"等万能表述。
+            {filmName:影片中文名字,pool:A池或B池,wechatIndexTrend:上升或平稳或下降,coreIdea:简要核心写作切入点,scoreTotal:总分0到4}
+            5. 重要限制：输出仅为AI推演初筛候选，后续必须人工打开微信指数小程序复核热度。
+            6. 【反同质化】coreIdea必须是具体、细分、反常识的切入点，禁止人性的复杂、爱的力量等万能表述。
             """;
 
     private static final String MAIN_REVIEW_PROMPT_TPL =
@@ -132,8 +130,8 @@ public class FilmReviewMain {
                     "\n" +
                     "🔴【最高优先级·防幻觉与视角伪装铁律】\n" +
                     "1. 所有剧情、人物、细节只能基于下方提供的【影片核心事实参考】。\n" +
-                    "2. ⚠️视角伪装：你必须完全代入"刚看完这部电影的资深影迷"视角！将下方参考信息内化为你的"观影记忆"。\n" +
-                    "3. 🚫绝对禁止在正文中出现"简介""简介里""简介中""剧情简介""官方设定""素材"等暴露数据来源的词汇！\n" +
+                    "2. ⚠️视角伪装：你必须完全代入刚看完这部电影的资深影迷视角！将下方参考信息内化为你的观影记忆。\n" +
+                    "3. 🚫绝对禁止在正文中出现简介、简介里、简介中、剧情简介、官方设定、素材等暴露数据来源的词汇！\n" +
                     "影片核心事实参考：\n\"%s\"\n" +
                     "严格区分：影片客观事实 / 个人主观观点。禁止虚构导演创作意图。\n" +
                     "\n" +
@@ -149,7 +147,7 @@ public class FilmReviewMain {
                     "Step5 去AI味润色：避免机械排比；全文至少包含2处反问句；拒绝AI套话；加入至少一处个人不确定性表达。\n" +
                     "Step6 公众号排版约束：每段不宜过长；必须将中心论点、核心金句使用 **加粗** 语法高亮。\n" +
                     "\n" +
-                    "🚫合规铁律：严禁出现"评论区聊聊""欢迎留言"等引导互动套话。\n" +
+                    "🚫合规铁律：严禁出现评论区聊聊、欢迎留言等引导互动套话。\n" +
                     "\n" +
                     "✅【输出JSON强制格式】\n" +
                     "{\"centralArgument\":\"一句话中心论点\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"完整公众号markdown正文\"}\n" +
@@ -161,7 +159,7 @@ public class FilmReviewMain {
     private static final String FALLBACK_REVIEW_PROMPT_TPL =
             "【硬性强制规则】\n" +
                     "角色：公众号影评撰稿人。\n" +
-                    "🔴最高约束：所有剧情细节只能基于下方【影片核心事实参考】，严禁编造。代入"看过全片的影迷"视角。禁止出现"简介"等暴露数据来源词汇。\n" +
+                    "🔴最高约束：所有剧情细节只能基于下方【影片核心事实参考】，严禁编造。代入看过全片的影迷视角。禁止出现简介等暴露数据来源词汇。\n" +
                     "影片核心事实参考：\n\"%s\"\n" +
                     "写作逻辑：少复述剧情，多输出人性感悟现实共鸣；全文至少2个反问；结尾反问引发思考；加入个人不确定性表达。\n" +
                     "规范：1.一句反常识中心论点+3条含具体信息点的钩子标题；2.开篇抓情绪，剧情铺垫≤150字；3.主体3‑4个解读角度，每个绑定具体现实案例；4.结尾金句+反问；5.核心句**加粗**；6.字数1800‑2500；7.禁止引导评论区互动。\n" +
@@ -187,7 +185,7 @@ public class FilmReviewMain {
                     "   · 至少一处反问句引发读者自省\n" +
                     "④结尾（200字）：金句收束+有力反问。不回扣剧情，只回扣现实。\n" +
                     "\n" +
-                    "⚠️视角伪装：你必须代入"看过全片的资深影迷"视角，将参考信息内化为观影记忆。禁止出现"简介""素材"等词。\n" +
+                    "⚠️视角伪装：你必须代入看过全片的资深影迷视角，将参考信息内化为观影记忆。禁止出现简介、素材等词。\n" +
                     "🚫禁止引导评论区互动。核心句**加粗**。加入至少一处个人不确定性表达。\n" +
                     "\n" +
                     "✅仅输出JSON：{\"centralArgument\":\"一句话中心论点\",\"titles\":[\"标题1\",\"标题2\",\"标题3\"],\"article\":\"markdown正文\"}\n" +
@@ -245,8 +243,6 @@ public class FilmReviewMain {
         try { return Integer.parseInt(value.trim()); } catch (Exception e) { return defaultValue; }
     }
 
-    // ====================== 模糊去重工具 ======================
-
     private static String normalizeMovieName(String name) {
         if (name == null) return "";
         return name.replaceAll("[\\s\\p{Punct}《》【】()（）·・:：]", "").toLowerCase().trim();
@@ -260,8 +256,6 @@ public class FilmReviewMain {
         }
         return false;
     }
-
-    // ====================== 主流程 ======================
 
     public static void main(String[] args) {
         List<String> usedMovies = new ArrayList<>();
@@ -363,7 +357,6 @@ public class FilmReviewMain {
                     }
                 }
             }
-            // [修复] 兜底池传入已用列表
             List<SkillFilmCandidate> aiPool = aiGenerateTaggedMoviePool(used);
             for (SkillFilmCandidate cand : aiPool) {
                 if (!isBlackMovie(cand.filmName) && !isMovieUsed(cand.filmName, used)) {
@@ -466,7 +459,6 @@ public class FilmReviewMain {
         return list;
     }
 
-    // [修复] 接收已用列表参数，注入prompt防止AI重复推荐
     private static List<SkillFilmCandidate> aiGenerateTaggedMoviePool(List<String> usedMovies) throws IOException {
         String usedHint = "";
         if (!usedMovies.isEmpty()) {
@@ -550,21 +542,19 @@ public class FilmReviewMain {
         return false;
     }
 
-    // [反同质化] 随机选取社会语境锚点
     private static String pickSocialContext() {
         return SOCIAL_CONTEXT_POOL[ThreadLocalRandom.current().nextInt(SOCIAL_CONTEXT_POOL.length)];
     }
 
     private static ReviewResult generateReview(String movieName, String tmdbOverview) throws Exception {
         int emptyCount = 0;
-        String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace(""", "\"").replace(""", "\"");
+        String safeOverview = (tmdbOverview == null || tmdbOverview.isBlank()) ? "" : tmdbOverview.replace("\u201c", "\"").replace("\u201d", "\"");
         boolean weakOverview = safeOverview.length() < OVERVIEW_WEAK_THRESHOLD;
         System.out.printf("✍️ 简介%d字，薄弱=%b\n", safeOverview.length(), weakOverview);
 
         for (int i = 0; i < ARTICLE_MAX_RETRY; i++) {
             System.out.printf("🔄 生成第%d/%d轮\n", i + 1, ARTICLE_MAX_RETRY);
             String randomAngle = WRITING_ANGLES[ThreadLocalRandom.current().nextInt(WRITING_ANGLES.length)];
-            // [反同质化] 注入动态社会语境 + 反同质化约束
             String socialContext = pickSocialContext();
             String systemPrompt = "你是一个资深影评人。" + randomAngle + "\n\n" + ANTI_HOMOGENEITY_INJECTION;
 
@@ -651,16 +641,13 @@ public class FilmReviewMain {
         return res;
     }
 
-    // [反同质化] 后处理：检测并弱化AI常见的重复段落模式
     private static String deduplicateArticle(String article) {
         if (article == null || article.isBlank()) return article;
-        // 移除AI喜欢重复使用的过渡段落模板
         article = article.replaceAll("(?m)^\\s*这不仅仅是一部电影[，,].*$", "");
         article = article.replaceAll("(?m)^\\s*或许[，,]这就是[人生|生活|成长|爱情]的[真谛|本质|真相][。].*$", "");
         article = article.replaceAll("(?m)^\\s*当我们走出影院[，,].*$", "");
         article = article.replaceAll("(?m)^\\s*回到现实[中来]?[，,].*$", "");
         article = article.replaceAll("(?m)^\\s*在这个[喧嚣|浮躁|快节奏]的[时代|社会|世界][里中]?[，,].*$", "");
-        // 清理多余空行
         article = article.replaceAll("\\n{3,}", "\n\n");
         return article.trim();
     }
