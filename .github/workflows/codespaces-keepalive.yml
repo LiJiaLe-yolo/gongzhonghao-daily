@@ -1,0 +1,27 @@
+name: Codespaces保活任务
+on:
+  workflow_dispatch:
+  schedule:
+    # UTC时间每15天执行一次，和仓库保活错开，避免同时触发
+    # cron: 分 时 日 月 周
+    - cron: '0 16 */15 * *'
+
+jobs:
+  keepalive-codespace:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: 安装 GitHub CLI
+        run: sudo apt-get install gh -y
+
+      - name: 唤醒Codespace重置保留倒计时
+        env:
+          GH_TOKEN: ${{ secrets.GH_CODESPACE_PAT }}
+          CODESPACE_NAME: "glowing rotary-phone"
+          REPO_FULL_NAME: "LiJiaLe-yolo/gongzhonghao-daily"
+        run: |
+          # 启动codespace，重置retention保留倒计时
+          gh codespace start --codespace "$CODESPACE_NAME" --repo "$REPO_FULL_NAME"
+          sleep 20
+          # 启动完成后立即停止，节约Codespace运行配额
+          gh codespace stop --codespace "$CODESPACE_NAME"
